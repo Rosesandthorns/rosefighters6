@@ -70,12 +70,16 @@ interface Player {
   isSuperArmor?: boolean;
   // Pinedo sprite state
   pinedoState?: 'idle' | 'run' | 'attack1' | 'attack2' | 'waiting' | 'attack3start' | 'attack3main';
-  pinedoAttack1End?: number;       // timestamp when attack1 animation ends
-  pinedoAttack1DmgStart?: number;  // timestamp when damage window opens
-  pinedoAttack1DmgEnd?: number;    // timestamp when damage window closes
-  pinedoAttack1Hit?: boolean;      // already dealt damage this swing
-  pinedoAttack3Center?: { x: number; y: number }; // center of attack3 radius
-  pinedoAttack3End?: number;       // timestamp when attack3 ends
+  pinedoAttack1End?: number;
+  pinedoAttack1DmgStart?: number;
+  pinedoAttack1DmgEnd?: number;
+  pinedoAttack1Hit?: boolean;
+  pinedoAttack3Center?: { x: number; y: number };
+  pinedoAttack3End?: number;
+  mirageState?: 'idle' | 'movestart' | 'midflight' | 'movestop' | 'attack1' | 'attack2' | 'attack3' | 'attack3reverse';
+  mirageMoving?: boolean;
+  mirageAttack3TeleportX?: number;
+  mirageAttack3TeleportY?: number;
   lastHitBy?: { id: string, time: number };
   brambleId?: string;
   brambleImmune?: number;
@@ -323,17 +327,12 @@ setInterval(() => {
             }
         }
 
-        // Pinedo attack3 damaging frames — end if player moved out of radius
+        // Pinedo attack3 damaging frames — run for fixed duration, no movement cancel
         if (player.characterId === 'pinedo' && player.pinedoState === 'attack3main' &&
-            player.pinedoAttack3Center && player.pinedoAttack3End && now < player.pinedoAttack3End) {
-            const cx = player.pinedoAttack3Center.x;
-            const cy = player.pinedoAttack3Center.y;
-            const dist = Math.hypot(player.x + player.width / 2 - cx, player.y + player.height / 2 - cy);
-            if (dist > 80) {
-                player.pinedoState = 'idle';
-                player.pinedoAttack3End = 0;
-                io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
-            } else if (now % 150 < 35) {
+            player.pinedoAttack3End && now < player.pinedoAttack3End) {
+            const cx = player.x + player.width / 2;
+            const cy = player.y + player.height / 2;
+            if (now % 150 < 35) {
                 for (const target of Object.values(players)) {
                     if (target.id === player.id) continue;
                     const td = Math.hypot(target.x + target.width / 2 - cx, target.y + target.height / 2 - cy);
@@ -821,6 +820,22 @@ io.on('connection', (socket) => {
       players[socket.id].isGrabbingLedge = movementData.isGrabbingLedge;
       players[socket.id].isStunned = movementData.isStunned;
       players[socket.id].isFastFalling = movementData.isFastFalling;
+
+      // Sync Mirage movement state for sprite
+      if (players[socket.id].characterId === 'mirage') {
+          const isMoving = Math.abs(movementData.velocity.x) > 0.5;
+          const wasMoving = players[socket.id].mirageMoving;
+          if (isMoving !== wasMoving) {
+              players[socket.id].mirageMoving = isMoving;
+              const st = players[socket.id].mirageState;
+              const inAttack = st === 'attack1' || st === 'attack2' || st === 'attack3' || st === 'attack3reverse';
+              if (!inAttack) {
+                  const newState = isMoving ? 'movestart' : 'movestop';
+                  players[socket.id].mirageState = newState;
+                  io.emit('playerEffect', { id: socket.id, effect: 'mirageState', state: newState });
+              }
+          }
+      }
       
       if (players[socket.id].grabbedPlayerId) {
           const grabbedId = players[socket.id].grabbedPlayerId;
@@ -885,50 +900,96 @@ io.on('connection', (socket) => {
       if (!player || gameState !== 'PLAYING') return;
 
       if (player.characterId === 'mirage') {
+          const mirageAttacking = player.mirageState === 'attack1' || player.mirageState === 'attack2' || player.mirageState === 'attack3' || player.mirageState === 'attack3reverse';
           if (data.ability === 1) {
-              const id = 'proj_' + entityIdCounter++;
-              projectiles[id] = {
-                  id, type: 'card',
-                  x: player.x + (player.facing === 'right' ? player.width : -20),
-                  y: player.y + player.height / 2,
-                  vx: player.facing === 'right' ? 15 : -15,
-                  vy: 0,
-                  ownerId: player.id,
-                  damage: 10,
-                  life: 60
-              };
+              if (mirageAttacking) return;
+              player.mirageState = 'attack1';
+              io.emit('playerEffect', { id: player.id, effect: 'mirageState', state: 'attack1' });
+              // Projectile fires after 195ms (390ms / 2, gif plays 2x speed)
+              const castFacing = player.facing;
+              const castX = player.x; const castY = player.y;
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  const pid = 'proj_' + entityIdCounter++;
+                  projectiles[pid] = {
+                      id: pid, type: 'card',
+                      x: castX + (castFacing === 'right' ? players[player.id].width : -20),
+                      y: castY + players[player.id].height / 2,
+                      vx: castFacing === 'right' ? 15 : -15, vy: 0,
+                      ownerId: player.id, damage: 10, life: 60
+                  };
+              }, 195);
+              // Animation total at 2x = 320ms
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].mirageState = 'idle';
+                  io.emit('playerEffect', { id: player.id, effect: 'mirageState', state: 'idle' });
+              }, 320);
           } else if (data.ability === 2) {
-              const id = 'wall_' + entityIdCounter++;
-              walls[id] = {
-                  id,
-                  x: player.x + (player.facing === 'right' ? 80 : -80),
-                  y: player.y - 50,
-                  width: 20,
-                  height: 100,
-                  expires: Date.now() + 5000
-              };
+              if (mirageAttacking) return;
+              player.mirageState = 'attack2';
+              io.emit('playerEffect', { id: player.id, effect: 'mirageState', state: 'attack2' });
+              // Projectile fires after 390ms
+              const castFacing2 = player.facing;
+              const castX2 = player.x; const castY2 = player.y;
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  const wid = 'wall_' + entityIdCounter++;
+                  walls[wid] = {
+                      id: wid,
+                      x: castX2 + (castFacing2 === 'right' ? 80 : -80),
+                      y: castY2 - 50,
+                      width: 20, height: 100,
+                      expires: Date.now() + 5000
+                  };
+              }, 390);
+              // Animation total = 640ms
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].mirageState = 'idle';
+                  io.emit('playerEffect', { id: player.id, effect: 'mirageState', state: 'idle' });
+              }, 640);
           } else if (data.ability === 3) {
-              let bestX = player.x;
-              let maxDist = -1;
-              for (let x = 220; x <= 750; x += 50) {
-                  let minDistToPlayer = 9999;
-                  let otherCount = 0;
-                  for (const other of Object.values(players)) {
-                      if (other.id === player.id) continue;
-                      otherCount++;
-                      const dist = Math.abs(x - other.x);
-                      if (dist < minDistToPlayer) minDistToPlayer = dist;
+              if (mirageAttacking) return;
+              player.mirageState = 'attack3';
+              io.emit('playerEffect', { id: player.id, effect: 'mirageState', state: 'attack3' });
+              // Freeze player during attack
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 9999 });
+              // I-frames after 90ms
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].isInvincible = true;
+              }, 90);
+              // After 420ms (gif done), teleport to best position
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  let bestX = player.x; let maxDist = -1;
+                  for (let x = 220; x <= 750; x += 50) {
+                      let minD = 9999;
+                      for (const other of Object.values(players)) {
+                          if (other.id === player.id) continue;
+                          const d = Math.abs(x - other.x);
+                          if (d < minD) minD = d;
+                      }
+                      if (minD > maxDist) { maxDist = minD; bestX = x; }
                   }
-                  if (otherCount === 0) minDistToPlayer = 9999;
-                  if (minDistToPlayer > maxDist) {
-                      maxDist = minDistToPlayer;
-                      bestX = x;
-                  }
-              }
-              player.x = bestX;
-              player.y = 350;
-              io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
-              io.emit('playerEffect', { id: player.id, effect: 'teleport' });
+                  const bestY = 350;
+                  players[player.id].mirageAttack3TeleportX = bestX;
+                  players[player.id].mirageAttack3TeleportY = bestY;
+                  players[player.id].x = bestX;
+                  players[player.id].y = bestY;
+                  io.emit('forcePosition', { id: player.id, x: bestX, y: bestY });
+                  players[player.id].mirageState = 'attack3reverse';
+                  io.emit('playerEffect', { id: player.id, effect: 'mirageState', state: 'attack3reverse' });
+              }, 420);
+              // After 420+420ms (reverse gif done), restore controls
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].isInvincible = false;
+                  players[player.id].mirageState = 'idle';
+                  io.to(player.id).emit('clearStun');
+                  io.emit('playerEffect', { id: player.id, effect: 'mirageState', state: 'idle' });
+              }, 840);
           }
       } else if (player.characterId === 'orbo') {
           if (data.ability === 1) {

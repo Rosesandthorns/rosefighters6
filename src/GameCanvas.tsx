@@ -30,6 +30,8 @@ interface Player {
   activeEffects?: { [effectName: string]: number };
   pinedoState?: 'idle' | 'run' | 'attack1' | 'attack2' | 'waiting' | 'attack3start' | 'attack3main';
   pinedoAttack3Center?: { x: number; y: number };
+  mirageState?: 'idle' | 'movestart' | 'midflight' | 'movestop' | 'attack1' | 'attack2' | 'attack3' | 'attack3reverse';
+  mirageMoving?: boolean;
 }
 
 interface Particle {
@@ -152,8 +154,10 @@ export default function GameCanvas() {
 
   // Pinedo sprite images — loaded once
   const pinedoImgs = useRef<Record<string, HTMLImageElement>>({});
+  // Mirage sprite images — loaded once
+  const mirageImgs = useRef<Record<string, HTMLImageElement>>({});
   useEffect(() => {
-    const assets: Record<string, string> = {
+    const pAssets: Record<string, string> = {
       idle:       '/Pinedo/PinedoIdlegif.gif',
       run:        '/Pinedo/PinedoRungif.gif',
       attack1:    '/Pinedo/PinedoAttack1gif.gif',
@@ -164,10 +168,21 @@ export default function GameCanvas() {
       projectile: '/Pinedo/PinedoProjectile.png',
       icon:       '/Pinedo/PinedoIcon.png',
     };
-    Object.entries(assets).forEach(([key, src]) => {
-      const img = new Image();
-      img.src = src;
+    Object.entries(pAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
       pinedoImgs.current[key] = img;
+    });
+    const mAssets: Record<string, string> = {
+      idle:         '/Mirage/MirageIdle.gif',
+      movestart:    '/Mirage/MirageMoveStart.gif',
+      midflight:    '/Mirage/MirageMidFlight.png',
+      attack12:     '/Mirage/MirageAttack2.gif',
+      attack3:      '/Mirage/MirageAttack3.gif',
+      icon:         '/Mirage/MirageIcon.png',
+    };
+    Object.entries(mAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
+      mirageImgs.current[key] = img;
     });
   }, []);
 
@@ -195,6 +210,9 @@ export default function GameCanvas() {
   const screenEffectRef = useRef<{ type: string; expiresAt: number } | null>(null);
   const kaelenBombRef = useRef<{ x: number; y: number } | null>(null);
   const [pinedoProjectiles, setPinedoProjectiles] = useState<{id:string,x:number,y:number}[]>([]);
+  // Mirage trail: last N positions for silhouette effect
+  const mirageTrailRef = useRef<{x:number,y:number,facing:'left'|'right',alpha:number}[]>([]);
+  const [mirageOverlay, setMirageOverlay] = useState<{id:string,x:number,y:number,state:string,facing:'left'|'right',trail:{x:number,y:number,facing:'left'|'right',alpha:number}[]}[]>([]);
 
   useEffect(() => {
     // Connect to same host, forcing websocket transport to avoid Cloud Run load balancing / polling issues
@@ -428,6 +446,9 @@ export default function GameCanvas() {
         }
         if (data.effect === 'pinedoAttack3Main') {
             p.pinedoState = 'attack3main';
+        }
+        if (data.effect === 'mirageState' && (data as any).state) {
+            p.mirageState = (data as any).state;
         }
     });
 
@@ -739,6 +760,22 @@ export default function GameCanvas() {
                   myPlayer.pinedoState = moveTarget !== 0 ? 'run' : 'idle';
                 }
               }
+              // Update Mirage movement state locally
+              if (myPlayer.characterId === 'mirage') {
+                const mAttack = ['attack1','attack2','attack3','attack3reverse'];
+                if (!mAttack.includes(myPlayer.mirageState || '')) {
+                  const wasMoving = myPlayer.mirageMoving;
+                  const nowMoving = moveTarget !== 0;
+                  if (nowMoving !== wasMoving) {
+                    myPlayer.mirageMoving = nowMoving;
+                    myPlayer.mirageState = nowMoving ? 'movestart' : 'movestop';
+                  } else if (nowMoving && myPlayer.mirageState === 'movestart') {
+                    myPlayer.mirageState = 'midflight';
+                  } else if (!nowMoving && myPlayer.mirageState === 'movestop') {
+                    myPlayer.mirageState = 'idle';
+                  }
+                }
+              }
 
               // Jump
               if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && myPlayer.isGrounded && !(myPlayer.activeEffects?.['ricaCharge'] > Date.now()) && myPlayer.characterId !== 'wax') {
@@ -1040,6 +1077,26 @@ export default function GameCanvas() {
         .filter(pr => pr.type === 'boomerang' && pinedoOwners.has(pr.ownerId))
         .map(pr => ({ id: pr.id, x: pr.x, y: pr.y }));
       setPinedoProjectiles(booms);
+      // Update Mirage overlay with trail
+      const miragePlayers = Object.values(playersRef.current).filter(p => p.characterId === 'mirage');
+      if (miragePlayers.length > 0) {
+        const mp = miragePlayers[0];
+        const isMoving = (mp.mirageState === 'midflight' || mp.mirageState === 'movestart') && Math.abs(mp.velocity?.x || 0) > 0.5;
+        if (isMoving) {
+          mirageTrailRef.current.push({ x: mp.x, y: mp.y, facing: mp.facing, alpha: 0.6 });
+          if (mirageTrailRef.current.length > 3) mirageTrailRef.current.shift();
+        } else {
+          mirageTrailRef.current = [];
+        }
+        setMirageOverlay(miragePlayers.map(p => ({
+          id: p.id, x: p.x, y: p.y,
+          state: p.mirageState || 'idle',
+          facing: p.facing,
+          trail: [...mirageTrailRef.current]
+        })));
+      } else {
+        setMirageOverlay([]);
+      }
     };
 
     const checkHits = (attacker: Player) => {
@@ -1317,22 +1374,8 @@ export default function GameCanvas() {
         }
 
         // ── Pinedo: hidden from canvas — rendered as DOM overlay beneath ──────
-        if (player.characterId === 'pinedo') {
+        if (player.characterId === 'pinedo' || player.characterId === 'mirage') {
             hideStandardBody = true;
-            // Still draw attack3 radius on canvas (pure shapes, no GIF needed)
-            const pState = player.pinedoState || 'idle';
-            if (pState === 'attack3start' || pState === 'attack3main') {
-                const cx = player.pinedoAttack3Center?.x ?? (player.x + player.width / 2);
-                const cy = player.pinedoAttack3Center?.y ?? (player.y + player.height / 2);
-                ctx.strokeStyle = pState === 'attack3main' ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([6, 4]);
-                ctx.beginPath();
-                ctx.arc(cx, cy, 80, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                ctx.lineWidth = 1;
-            }
         }
 
         if (!hideStandardBody) {
@@ -1600,6 +1643,8 @@ export default function GameCanvas() {
                  >
                     {char.id === 'pinedo' ? (
                       <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : char.id === 'mirage' ? (
+                      <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
                     )}
@@ -1692,6 +1737,51 @@ export default function GameCanvas() {
                   style={{ left: proj.x - 6.5, top: proj.y - 20 }}
                 />
               ))}
+
+              {/* Mirage DOM sprite overlay */}
+              {mirageOverlay.map(m => {
+                const drawH = 62;
+                const drawW = drawH;
+                const bottom = m.y + 50 + 4;
+                const top = bottom - drawH;
+                const left = m.x + 25 - drawW / 2;
+                const src =
+                  m.state === 'attack1' || m.state === 'attack2' ? '/Mirage/MirageAttack2.gif' :
+                  m.state === 'attack3' ? '/Mirage/MirageAttack3.gif' :
+                  m.state === 'attack3reverse' ? '/Mirage/MirageAttack3.gif' :
+                  m.state === 'movestart' ? '/Mirage/MirageMoveStart.gif' :
+                  m.state === 'midflight' ? '/Mirage/MirageMidFlight.png' :
+                  m.state === 'movestop' ? '/Mirage/MirageMoveStart.gif' :
+                  '/Mirage/MirageIdle.gif';
+                const flip = m.facing === 'right';
+                const isReverse = m.state === 'attack3reverse' || m.state === 'movestop';
+                return (
+                  <div key={m.id + '-mirage'} style={{ position: 'absolute', left: 0, top: 0, width: 1024, height: 600, pointerEvents: 'none' }}>
+                    {/* Silhouette trail — 3 fading copies when moving */}
+                    {m.trail.map((t, i) => (
+                      <img key={i} src="/Mirage/MirageMidFlight.png" alt="" style={{
+                        position: 'absolute',
+                        left: t.x + 25 - drawW / 2,
+                        top: t.y + 50 + 4 - drawH,
+                        width: drawW, height: drawH,
+                        imageRendering: 'pixelated',
+                        opacity: (i + 1) / (m.trail.length + 1) * 0.5,
+                        transform: t.facing === 'right' ? 'scaleX(-1)' : 'none',
+                        transformOrigin: 'center center',
+                        filter: 'brightness(0) invert(1)',
+                      }} />
+                    ))}
+                    {/* Main sprite */}
+                    <img src={src} alt="" style={{
+                      position: 'absolute',
+                      left, top, width: drawW, height: drawH,
+                      imageRendering: 'pixelated',
+                      transform: `${flip ? 'scaleX(-1)' : ''} ${isReverse ? 'scaleY(-1)' : ''}`.trim() || 'none',
+                      transformOrigin: 'center center',
+                    }} />
+                  </div>
+                );
+              })}
               {playersList.filter(p => p.characterId === 'pinedo').map(p => {
                 const state = p.pinedoState || 'idle';
                 // Pick src and whether sprite is 160px wide (attack) or 128px
@@ -1765,6 +1855,8 @@ export default function GameCanvas() {
                 <div className={`w-20 h-20 ${iconBgClass} rounded-xl border ${iconBorderClass} flex items-center justify-center overflow-hidden`}>
                   {p.characterId === 'pinedo' ? (
                     <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-14 h-14 object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : p.characterId === 'mirage' ? (
+                    <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-14 h-14 object-contain" style={{ imageRendering: 'pixelated' }} />
                   ) : (
                     <div className={`w-12 h-12 rounded-lg ${idx === 0 ? 'rotate-12' : '-rotate-12'}`} style={{ backgroundColor: p.color }}></div>
                   )}
