@@ -194,6 +194,7 @@ export default function GameCanvas() {
   const safetyWarpReadyRef = useRef<boolean>(false);
   const screenEffectRef = useRef<{ type: string; expiresAt: number } | null>(null);
   const kaelenBombRef = useRef<{ x: number; y: number } | null>(null);
+  const [pinedoProjectiles, setPinedoProjectiles] = useState<{id:string,x:number,y:number}[]>([]);
 
   useEffect(() => {
     // Connect to same host, forcing websocket transport to avoid Cloud Run load balancing / polling issues
@@ -1031,6 +1032,14 @@ export default function GameCanvas() {
 
       // Keep playersList in sync every frame so DOM sprite overlay updates position
       setPlayersList(Object.values(playersRef.current));
+      // Keep Pinedo projectiles in sync for DOM spinning head overlay
+      const pinedoOwners = new Set(
+        Object.values(playersRef.current).filter(p => p.characterId === 'pinedo').map(p => p.id)
+      );
+      const booms = Object.values(entitiesRef.current.projectiles)
+        .filter(pr => pr.type === 'boomerang' && pinedoOwners.has(pr.ownerId))
+        .map(pr => ({ id: pr.id, x: pr.x, y: pr.y }));
+      setPinedoProjectiles(booms);
     };
 
     const checkHits = (attacker: Player) => {
@@ -1184,27 +1193,9 @@ export default function GameCanvas() {
               ctx.lineTo(proj.x + (proj.vx > 0 ? 15 : -15), proj.y + 4);
               ctx.fill();
           } else if (proj.type === 'boomerang') {
-              // If owner is Pinedo, draw the spinning head projectile
               const boomerangOwner = Object.values(playersRef.current).find(p => p.id === proj.ownerId);
               if (boomerangOwner?.characterId === 'pinedo') {
-                  const headImg = pinedoImgs.current['projectile'];
-                  if (headImg && headImg.complete && headImg.naturalWidth > 0) {
-                      ctx.save();
-                      ctx.translate(proj.x, proj.y);
-                      ctx.rotate(Date.now() / 120);
-                      // Native size 25×78 — draw at 2× for visibility: 50×156 but that's too tall
-                      // Scale to a sensible display size keeping aspect: height=40, width=40*(25/78)≈13
-                      const ph = 40;
-                      const pw = ph * (25 / 78);
-                      ctx.drawImage(headImg, -pw / 2, -ph / 2, pw, ph);
-                      ctx.restore();
-                  } else {
-                      // Fallback
-                      ctx.fillStyle = '#fff';
-                      ctx.beginPath();
-                      ctx.arc(proj.x, proj.y, 10, 0, Math.PI * 2);
-                      ctx.fill();
-                  }
+                  // Rendered as DOM element (spinning CSS animation) — skip canvas draw
               } else {
                   ctx.save();
                   ctx.translate(proj.x + 15, proj.y + 15);
@@ -1691,6 +1682,16 @@ export default function GameCanvas() {
             />
             {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
             <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600 }}>
+              {/* Spinning head projectiles */}
+              {pinedoProjectiles.map(proj => (
+                <img
+                  key={proj.id + '-proj'}
+                  src="/Pinedo/PinedoProjectile.png"
+                  alt=""
+                  className="pinedo-projectile"
+                  style={{ left: proj.x - 6.5, top: proj.y - 20 }}
+                />
+              ))}
               {playersList.filter(p => p.characterId === 'pinedo').map(p => {
                 const state = p.pinedoState || 'idle';
                 // Pick src and whether sprite is 160px wide (attack) or 128px
@@ -1706,14 +1707,9 @@ export default function GameCanvas() {
 
                 // Render height: scale sprite so it visually covers the 50px collision box
                 // 128px sprite → we want it to look ~90px tall on screen for visibility
-                const drawH = 90;
-                // For 128px wide sprites, drawW = drawH. For 160px attack sprites, drawW = drawH * (160/128)
+                const drawH = 62;
                 const drawW = isAttack ? drawH * (160 / 128) : drawH;
-
-                // Anchor: sprite bottom = collision box bottom - 8px foot offset
-                // collision box bottom = p.y + p.height
-                const FOOT_OFFSET = 8;
-                const bottom = p.y + p.height - FOOT_OFFSET;
+                const bottom = p.y + p.height + 4;
                 const top = bottom - drawH;
 
                 // Horizontal: center body on player center

@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+@keyframes pinedo-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.pinedo-projectile {
+  animation: pinedo-spin 0.5s linear infinite;
+  transform-origin: center center;
+  image-rendering: pixelated;
+  position: absolute;
+  width: 13px;
+  height: 40px;
+}
