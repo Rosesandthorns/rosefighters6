@@ -513,9 +513,17 @@ setInterval(() => {
         let hit = false;
         for (const player of Object.values(players)) {
             if (player.id !== proj.ownerId) {
-                if (proj.x > player.x && proj.x < player.x + player.width &&
-                    proj.y > player.y && proj.y < player.y + player.height) {
-                    
+                // Swept AABB: check the full path the projectile travelled this tick
+                // so fast/narrow projectiles don't tunnel through thin hitboxes
+                const prevX = proj.x - proj.vx;
+                const prevY = proj.y - proj.vy;
+                const minX = Math.min(proj.x, prevX);
+                const maxX = Math.max(proj.x, prevX);
+                const minY = Math.min(proj.y, prevY);
+                const maxY = Math.max(proj.y, prevY);
+                const sweptHit = maxX > player.x && minX < player.x + player.width &&
+                            maxY > player.y && minY < player.y + player.height;
+                if (sweptHit) {
                     const beforeHp = player.health;
                     let actualDamage = proj.damage;
                     if (proj.type === 'laser') {
