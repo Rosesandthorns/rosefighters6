@@ -1,0 +1,6 @@
+{
+  "name": "Barebones App",
+  "description": "A minimal boilerplate application ready for custom code uploads.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

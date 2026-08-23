@@ -1,0 +1,1512 @@
+import express from 'express';
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: '*',
+  },
+  transports: ['websocket']
+});
+
+// Real-time game state
+interface Player {
+  id: string;
+  characterId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  health: number;
+  maxHealth: number;
+  facing: 'left' | 'right';
+  velocity: { x: number, y: number };
+  isAttacking: boolean;
+  isGrounded: boolean;
+  isGrabbingLedge: boolean;
+  isStunned: boolean;
+  isFastFalling: boolean;
+  score: number;
+  speedMult: number;
+  staticChargeLastHit?: number;
+  hadDronesA?: boolean;
+  hadDronesB?: boolean;
+  hadDronesC?: boolean;
+  droneACooldown?: number;
+  droneBCooldown?: number;
+  droneCCooldown?: number;
+  deflectTimer?: number;
+  safetyWarpState?: 'none' | 'charging' | 'ready';
+  safetyWarpTimer?: number;
+  dots?: { damagePerTick: number; ticksLeft: number; nextTick: number; ownerId?: string }[];
+  isInvincible?: boolean;
+  activeEffects?: Record<string, number>;
+  hp?: number;
+  kaelenBombCD?: number;
+  kaelenBomb?: { x: number; y: number } | null;
+  inkSlowed?: number;
+  paintCovered?: number;
+  isBoss?: boolean;
+  grabbedPlayerId?: string | null;
+  grabbedByPlayerId?: string | null;
+  grabTimer?: number;
+  throwCooldown?: number;
+  chargeState?: 'none' | 'charging' | 'running';
+  chargeTimer?: number;
+  mimicTimer?: number;
+  healLastHit?: number;
+  healTimer?: number;
+  boomerangActive?: boolean;
+  womboTimer?: number;
+  isSuperArmor?: boolean;
+  lastHitBy?: { id: string, time: number };
+  brambleId?: string;
+  brambleImmune?: number;
+}
+
+const ROSTER = [
+  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park' },
+  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park' },
+  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park' },
+  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park' },
+  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park' },
+  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park' },
+  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park' },
+  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park' },
+  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
+  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
+  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
+  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
+  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence' },
+  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence' },
+  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage' },
+  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage' }
+];
+
+interface LobbyPlayer {
+  id: string;
+  characterId: string | null;
+  isReady: boolean;
+  lastActive: number;
+}
+
+interface Projectile {
+    id: string;
+    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap';
+    x: number;
+    y: number;
+    startX?: number;
+    startY?: number;
+    vx: number;
+    vy: number;
+    ownerId: string;
+    damage: number;
+    life: number;
+    state?: string;
+}
+
+interface Wall {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    expires: number;
+    type?: string;
+    ownerId?: string;
+}
+
+interface Zone {
+    id: string;
+    x: number;
+    y: number;
+    radius: number;
+    timer: number;
+    ownerId: string;
+}
+
+interface Drone {
+    id: string;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    ownerId: string;
+    hp: number;
+    type?: 'A' | 'B' | 'C';
+    angle?: number;
+}
+
+const players: Record<string, Player> = {};
+const lobbyPlayers: Record<string, LobbyPlayer> = {};
+const projectiles: Record<string, Projectile> = {};
+const walls: Record<string, Wall> = {};
+const zones: Record<string, Zone> = {};
+const drones: Record<string, Drone> = {};
+let entityIdCounter = 0;
+let gameState: 'LOBBY' | 'PLAYING' = 'LOBBY';
+
+function applyDamage(target: Player, damage: number, attackerId?: string, isExplosion = false) {
+    if (target.isInvincible) return;
+
+    // Mimic Counter
+    if (target.mimicTimer && target.mimicTimer > Date.now()) {
+        if (!isExplosion && attackerId) {
+            target.mimicTimer = 0;
+            io.emit('playerEffect', { id: target.id, effect: 'mimicSuccess' });
+            const attacker = players[attackerId];
+            if (attacker && !attacker.isInvincible) {
+                const dmg = Math.min(50, attacker.maxHealth * 0.33);
+                attacker.health -= dmg;
+                attacker.x = target.x + (target.facing === 'right' ? -50 : 50);
+                io.emit('forcePosition', { id: attacker.id, x: attacker.x, y: attacker.y });
+                io.to(attacker.id).emit('applyKnockback', { vx: 0, vy: 15, stunFrames: 150 });
+                if (attacker.health <= 0) {
+                    attacker.health = attacker.maxHealth;
+                    attacker.x = Math.random() * 400 + 312;
+                    attacker.y = 50;
+                    attacker.isGrabbingLedge = false;
+                    target.score += 1;
+                    io.emit('playerRespawned', attacker);
+                    io.emit('scoreUpdated', { id: target.id, score: target.score });
+                } else {
+                    io.emit('playerHealthChanged', { id: attacker.id, health: attacker.health });
+                }
+            }
+        }
+        return; // Negate damage
+    }
+
+    // Deflect Counter
+    if (target.deflectTimer && target.deflectTimer > Date.now() && attackerId && !isExplosion) {
+        const attacker = players[attackerId];
+        if (attacker) {
+            if (attacker.isInvincible) attacker.isInvincible = false;
+            attacker.health -= damage * 2;
+            io.emit('playerEffect', { id: target.id, effect: 'deflectSuccess' });
+            io.emit('playerEffect', { id: attacker.id, effect: 'hit' });
+            if (attacker.health <= 0) {
+                attacker.health = attacker.maxHealth;
+                attacker.x = Math.random() * 400 + 312;
+                attacker.y = 50;
+                attacker.isGrabbingLedge = false;
+                target.score += 1;
+                io.emit('playerRespawned', attacker);
+                io.emit('scoreUpdated', { id: target.id, score: target.score });
+            } else {
+                io.emit('playerHealthChanged', { id: attacker.id, health: attacker.health });
+            }
+        }
+        return; // Negate damage
+    }
+
+    if (target.characterId === 'chester' && target.healTimer && target.healTimer > Date.now()) {
+        target.healTimer = 0;
+        io.emit('playerEffect', { id: target.id, effect: 'healCancel' });
+    }
+
+    target.health -= damage;
+    if (attackerId) {
+        target.lastHitBy = { id: attackerId, time: Date.now() };
+    }
+    io.emit('playerEffect', { id: target.id, effect: 'hit' });
+
+    if (target.health <= 0) {
+        target.health = target.maxHealth;
+        target.x = Math.random() * 400 + 312;
+        target.y = 50;
+        target.isGrabbingLedge = false;
+        if (attackerId && players[attackerId] && attackerId !== target.id) {
+            players[attackerId].score += 1;
+            io.emit('scoreUpdated', { id: attackerId, score: players[attackerId].score });
+        }
+        io.emit('playerRespawned', target);
+    } else {
+        io.emit('playerHealthChanged', { id: target.id, health: target.health });
+    }
+}
+
+setInterval(() => {
+    if (gameState !== 'PLAYING') return;
+    const now = Date.now();
+
+    // Process Zones (Future Prediction)
+    for (const [id, zone] of Object.entries(zones)) {
+        if (now >= zone.timer) {
+            io.emit('zoneDetonate', { x: zone.x, y: zone.y, radius: zone.radius });
+            for (const player of Object.values(players)) {
+                const dist = Math.hypot(player.x + player.width/2 - zone.x, player.y + player.height/2 - zone.y);
+                if (dist <= zone.radius) {
+                    player.dots = player.dots || [];
+                    player.dots.push({ damagePerTick: 7.5, ticksLeft: 4, nextTick: now + 500, ownerId: zone.ownerId });
+                    io.emit('playerEffect', { id: player.id, effect: 'dotStart' });
+                }
+            }
+            for (const [droneId, drone] of Object.entries(drones)) {
+                if (drone.ownerId !== zone.ownerId) {
+                    const dist = Math.hypot(drone.x - zone.x, drone.y - zone.y);
+                    if (dist <= zone.radius) {
+                        drone.hp -= 15;
+                    }
+                }
+            }
+            delete zones[id];
+        }
+    }
+
+    // Process DoTs, Safety Warp, and Wombo Combo
+    for (const player of Object.values(players)) {
+        if (player.womboTimer && player.womboTimer > now) {
+            // Hit every 0.3s (we can just use dots system or apply here directly if tick matches)
+            // Actually, just check if frame count is multiple of 9 (30fps * 0.3 = 9 frames)
+            // But we don't have frame count. Let's just use now % 300 < 33
+            if (now % 300 < 35) {
+                for (const target of Object.values(players)) {
+                    if (target.id === player.id) continue;
+                    const dist = Math.hypot(target.x - player.x, target.y - player.y);
+                    if (dist < 80) {
+                        applyDamage(target, 5, player.id);
+                    }
+                }
+            }
+        }
+        
+        // Fire wall damage
+        for (const wall of Object.values(walls)) {
+            if (wall.type === 'fire' && wall.ownerId !== player.id && player.characterId !== 'wisp') {
+                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                    if (now % 500 < 35) {
+                        applyDamage(player, 5, wall.ownerId, true);
+                    }
+                }
+            } else if (wall.type === 'bramble' && wall.ownerId !== player.id) {
+                if (player.brambleImmune && player.brambleImmune > now) continue;
+                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                    applyDamage(player, 15, wall.ownerId);
+                    io.to(player.id).emit('applyKnockback', { vx: 0, vy: -5, stunFrames: 60 });
+                    delete walls[wall.id];
+                }
+            } else if (wall.type === 'bloodCloud' && wall.ownerId !== player.id) {
+                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                    if (now % 500 < 35) {
+                        applyDamage(player, 8, wall.ownerId, true);
+                    }
+                }
+            }
+        }
+
+        if (player.dots && player.dots.length > 0) {
+            for (let i = player.dots.length - 1; i >= 0; i--) {
+                const dot = player.dots[i];
+                if (now >= dot.nextTick) {
+                    const beforeHp = player.health;
+                    applyDamage(player, dot.damagePerTick, dot.ownerId, true);
+                    dot.ticksLeft--;
+                    dot.nextTick = now + 500;
+                    if (player.health <= 0 || (beforeHp > 0 && player.health === player.maxHealth)) {
+                        // Dead (health reset to maxHealth by applyDamage, or died)
+                        if (dot.ticksLeft <= 0) player.dots.splice(i, 1);
+                        continue;
+                    }
+                    if (dot.ticksLeft <= 0) player.dots.splice(i, 1);
+                }
+            }
+        }
+
+        if (player.safetyWarpState === 'charging' && player.safetyWarpTimer && now >= player.safetyWarpTimer) {
+            player.safetyWarpState = 'ready';
+            io.emit('playerEffect', { id: player.id, effect: 'warpReady' });
+        }
+
+        // Restore speed after ink slow expires
+        if (player.inkSlowed && now >= player.inkSlowed) {
+            player.inkSlowed = 0;
+            const char = ROSTER.find(c => c.id === player.characterId);
+            player.speedMult = char ? char.speedMult : 1.0;
+            io.emit('playerEffect', { id: player.id, effect: 'inkSlowEnd' });
+        }
+
+        // Rica Grab Timeout
+        if (player.grabTimer && player.grabbedPlayerId && now > player.grabTimer) {
+             const target = players[player.grabbedPlayerId];
+             if (target) {
+                  target.health -= target.maxHealth * 0.25;
+                  player.grabbedPlayerId = null;
+                  target.grabbedByPlayerId = null;
+                  player.grabTimer = 0;
+                  player.throwCooldown = Date.now() + 5000;
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaSlam' });
+                  io.to(target.id).emit('applyKnockback', { vx: 0, vy: 20, stunFrames: 30 });
+                  if (target.health <= 0) {
+                     target.health = target.maxHealth;
+                     target.x = Math.random() * 400 + 312;
+                     target.y = 50;
+                     player.score += 1;
+                     io.emit('playerRespawned', target);
+                     io.emit('scoreUpdated', { id: player.id, score: player.score });
+                  } else {
+                     io.emit('playerHealthChanged', { id: target.id, health: target.health });
+                  }
+             }
+        }
+        
+        // Rica Charge Timeout
+        if (player.chargeState === 'charging' && player.chargeTimer && now >= player.chargeTimer) {
+            player.chargeState = 'running';
+            io.emit('playerEffect', { id: player.id, effect: 'ricaChargeRun' });
+        }
+
+        // Chester Heal
+        if (player.healTimer && now < player.healTimer) {
+             if (now - (player.healLastHit || 0) > 5000) {
+                  player.health = Math.min(player.maxHealth, player.health + 20);
+                  player.healTimer = 0; // consumed
+                  io.emit('playerHealthChanged', { id: player.id, health: player.health });
+                  io.emit('playerEffect', { id: player.id, effect: 'chesterHealed' });
+             }
+        }
+    }
+
+    // Process Walls
+    for (const [id, wall] of Object.entries(walls)) {
+        if (now >= wall.expires) {
+            delete walls[id];
+        }
+    }
+
+    // Process Projectiles
+    for (const [id, proj] of Object.entries(projectiles)) {
+        if (proj.type === 'boomerang') {
+            if (proj.life > 30) {
+                proj.vx -= (proj.vx > 0 ? 0.5 : -0.5);
+            } else {
+                const owner = players[proj.ownerId];
+                if (owner) {
+                    const dx = owner.x + owner.width/2 - proj.x;
+                    const dy = owner.y + owner.height/2 - proj.y;
+                    const len = Math.hypot(dx, dy);
+                    if (len < 30) {
+                        owner.boomerangActive = false;
+                        owner.isSuperArmor = false;
+                        io.to(owner.id).emit('clearStun');
+                        // We need io to emit clearStun.
+                        // I will handle clearStun directly here
+                        proj.life = -1; // force delete
+                    } else {
+                        proj.vx = (dx / len) * 15;
+                        proj.vy = (dy / len) * 15;
+                    }
+                }
+            }
+        } else if (proj.type === 'fireball') {
+            let nearestTarget = null;
+            let minDist = 9999;
+            for (const p of Object.values(players)) {
+                if (p.characterId === 'wisp') continue;
+                const dist = Math.hypot(p.x - proj.x, p.y - proj.y);
+                if (dist < minDist) { minDist = dist; nearestTarget = p; }
+            }
+            if (nearestTarget) {
+                const dx = nearestTarget.x + nearestTarget.width / 2 - proj.x;
+                const dy = nearestTarget.y + nearestTarget.height / 2 - proj.y;
+                const len = Math.hypot(dx, dy);
+                if (len > 0) {
+                    proj.vx += (dx / len) * 0.5;
+                    proj.vy += (dy / len) * 0.5;
+                    const speed = Math.hypot(proj.vx, proj.vy);
+                    if (speed > 10) { proj.vx = (proj.vx / speed) * 10; proj.vy = (proj.vy / speed) * 10; }
+                }
+            }
+        }
+
+        proj.x += proj.vx;
+        proj.y += proj.vy;
+        proj.life--;
+        
+        // Apply gravity to lobbed projectiles
+        if (proj.type === 'lantern' || proj.type === 'paintLob') {
+            proj.vy += 0.5;
+        }
+        
+        let hit = false;
+        for (const player of Object.values(players)) {
+            if (player.id !== proj.ownerId) {
+                if (proj.x > player.x && proj.x < player.x + player.width &&
+                    proj.y > player.y && proj.y < player.y + player.height) {
+                    
+                    const beforeHp = player.health;
+                    let actualDamage = proj.damage;
+                    if (proj.type === 'laser') {
+                        const dist = Math.hypot(proj.x - (proj.startX || 0), proj.y - (proj.startY || 0));
+                        actualDamage = Math.min(40, Math.max(10, 10 + (dist / 800) * 30));
+                    }
+                    applyDamage(player, actualDamage, proj.ownerId);
+                    if (player.health < beforeHp) {
+                        if (player.characterId !== 'wax') io.to(player.id).emit('applyKnockback', { vx: proj.vx > 0 ? 10 : -10, vy: -5, stunFrames: 10 });
+                        // Lantern stun
+                        if (proj.type === 'lantern') {
+                            io.to(player.id).emit('applyKnockback', { vx: proj.vx > 0 ? 6 : -6, vy: -4, stunFrames: 30 });
+                        }
+                        // Dart slow
+                        if (proj.type === 'dart') {
+                            player.inkSlowed = Date.now() + 3000;
+                            player.speedMult = (player.speedMult || 1.0) * 0.5;
+                            io.emit('playerEffect', { id: player.id, effect: 'inkSlowed' });
+                        }
+                        // Paint lob — cover screen
+                        if (proj.type === 'paintLob') {
+                            player.paintCovered = Date.now() + 4000;
+                            io.to(player.id).emit('screenEffect', { type: 'paintCover', duration: 4000 });
+                        }
+                        // Paint trap — cover screen
+                        if (proj.type === 'paintTrap') {
+                            player.paintCovered = Date.now() + 4000;
+                            io.to(player.id).emit('screenEffect', { type: 'paintCover', duration: 4000 });
+                        }
+                    }
+                    if (proj.type !== 'boomerang') {
+                        delete projectiles[id];
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!hit && projectiles[id]) {
+            for (const wall of Object.values(walls)) {
+                if (['fire', 'bramble', 'bloodCloud'].includes(wall.type || '')) continue;
+                if (proj.x > wall.x && proj.x < wall.x + wall.width &&
+                    proj.y > wall.y && proj.y < wall.y + wall.height) {
+                    if (proj.type !== 'boomerang') {
+                        delete projectiles[id];
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (!hit && projectiles[id]) {
+            for (const [droneId, drone] of Object.entries(drones)) {
+                if (drone.ownerId !== proj.ownerId) {
+                    if (proj.x > drone.x - 10 && proj.x < drone.x + 10 &&
+                        proj.y > drone.y - 10 && proj.y < drone.y + 10) {
+                        drone.hp -= proj.damage;
+                        if (drone.type !== 'A') {
+                            delete projectiles[id];
+                            hit = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!hit && projectiles[id] && proj.life <= 0) {
+            delete projectiles[id];
+        }
+    }
+
+    // Process Drones
+    const currentDrones = { A: new Set(), B: new Set(), C: new Set() };
+    for (const drone of Object.values(drones)) {
+        if (drone.type && drone.hp > 0) currentDrones[drone.type as 'A'|'B'|'C'].add(drone.ownerId);
+    }
+
+    for (const [id, drone] of Object.entries(drones)) {
+        if (drone.hp <= 0) {
+            delete drones[id];
+            continue;
+        }
+        
+        let nearestTarget = null;
+        let minDist = 9999;
+        for (const player of Object.values(players)) {
+            if (player.id === drone.ownerId) continue;
+            if (player.characterId === 'rica') continue;
+            const dist = Math.hypot(player.x - drone.x, player.y - drone.y);
+            if (dist < minDist) {
+                minDist = dist;
+                nearestTarget = player;
+            }
+        }
+        
+        if (drone.type === 'C') {
+            drone.angle = (drone.angle || 0) + 0.05;
+            const owner = players[drone.ownerId];
+            if (owner) {
+                drone.x = owner.x + owner.width/2 + Math.cos(drone.angle)*60 - 10;
+                drone.y = owner.y + owner.height/2 + Math.sin(drone.angle)*60 - 10;
+            } else {
+                drone.hp = 0; // owner died
+            }
+        } else if (nearestTarget) {
+            const dx = nearestTarget.x + nearestTarget.width / 2 - drone.x;
+            const dy = nearestTarget.y + nearestTarget.height / 2 - drone.y;
+            const len = Math.hypot(dx, dy);
+            if (len > 0) {
+                const speed = drone.type === 'A' ? 1.5 : (drone.type === 'B' ? 12 : 5);
+                drone.vx = (dx / len) * speed;
+                drone.vy = (dy / len) * speed;
+            }
+        }
+        
+        if (drone.type !== 'C') {
+            drone.x += drone.vx;
+            drone.y += drone.vy;
+        }
+        
+        for (const wall of Object.values(walls)) {
+            if (['bramble', 'bloodCloud'].includes(wall.type || '')) continue;
+            if (drone.x > wall.x && drone.x < wall.x + wall.width &&
+                drone.y > wall.y && drone.y < wall.y + wall.height) {
+                if (wall.type === 'fire') {
+                    drone.hp -= 20; // Breaks to fire walls
+                } else {
+                    if (drone.type === 'B') {
+                        drone.hp = 0;
+                    } else if (drone.type !== 'C') {
+                        drone.x -= drone.vx; // Stop on Mirage's walls
+                        drone.y -= drone.vy;
+                    }
+                }
+            }
+        }
+        
+        for (const player of Object.values(players)) {
+            if (player.id === drone.ownerId) continue;
+            if (player.characterId === 'rica') continue;
+            
+            const radius = drone.type === 'A' ? 5 : (drone.type === 'B' ? 8 : (drone.type === 'C' ? 10 : 10));
+            if (drone.x > player.x - radius && drone.x < player.x + player.width + radius &&
+                drone.y > player.y - radius && drone.y < player.y + player.height + radius) {
+                
+                let dmg = 15;
+                if (drone.type === 'A') dmg = 1;
+                else if (drone.type === 'B') dmg = 10;
+                else if (drone.type === 'C') dmg = 5;
+
+                const beforeHp = player.health;
+                applyDamage(player, dmg, drone.ownerId, true);
+                if (player.health < beforeHp) {
+                    io.to(player.id).emit('applyKnockback', { vx: drone.vx > 0 ? 5 : -5, vy: drone.type === 'C' ? -5 : 15, stunFrames: 15 });
+                }
+                drone.hp = 0;
+                break;
+            }
+        }
+    }
+    
+    // Process Drone Cooldowns
+    for (const player of Object.values(players)) {
+        if (player.characterId === 'neddy') {
+            if (!currentDrones.A.has(player.id) && player.hadDronesA) {
+                player.droneACooldown = Date.now() + 5000;
+            }
+            player.hadDronesA = currentDrones.A.has(player.id);
+            
+            if (!currentDrones.B.has(player.id) && player.hadDronesB) {
+                player.droneBCooldown = Date.now() + 5000;
+            }
+            player.hadDronesB = currentDrones.B.has(player.id);
+            
+            if (!currentDrones.C.has(player.id) && player.hadDronesC) {
+                player.droneCCooldown = Date.now() + 10000;
+            }
+            player.hadDronesC = currentDrones.C.has(player.id);
+        }
+    }
+
+    io.emit('entitiesUpdate', { 
+        projectiles: { ...projectiles }, 
+        walls: { ...walls }, 
+        zones: { ...zones },
+        drones: { ...drones }
+    });
+}, 1000 / 30);
+
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+  
+  lobbyPlayers[socket.id] = { id: socket.id, characterId: null, isReady: false, lastActive: Date.now() };
+  socket.emit('lobbyState', { players: lobbyPlayers, state: 'LOBBY' });
+  socket.broadcast.emit('lobbyUpdate', lobbyPlayers);
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+    delete lobbyPlayers[socket.id];
+    io.emit('lobbyUpdate', lobbyPlayers);
+    
+    if (players[socket.id]) {
+        delete players[socket.id];
+        io.emit('playerDisconnected', socket.id);
+    }
+
+    if (Object.keys(lobbyPlayers).length === 0) {
+        gameState = 'LOBBY';
+        for (const key in players) delete players[key];
+    }
+  });
+
+  socket.on('selectCharacter', (charId) => {
+    if (!lobbyPlayers[socket.id]) return;
+    lobbyPlayers[socket.id].lastActive = Date.now();
+    const taken = Object.values(lobbyPlayers).some(p => p.characterId === charId);
+    if (!taken || charId === null) {
+      lobbyPlayers[socket.id].characterId = charId;
+      lobbyPlayers[socket.id].isReady = false;
+      io.emit('lobbyUpdate', lobbyPlayers);
+    }
+  });
+
+  socket.on('toggleReady', () => {
+    const p = lobbyPlayers[socket.id];
+    if (!p) return;
+    p.lastActive = Date.now();
+    
+    if (p.characterId) {
+      if (gameState === 'PLAYING') {
+         // Mid-game join
+         const char = ROSTER.find(c => c.id === p.characterId);
+         const maxHp = char ? char.hp : 100;
+         players[p.id] = {
+            id: p.id,
+            characterId: p.characterId,
+            x: Math.random() * 400 + 312,
+            y: p.characterId === 'wax' ? 350 : 50,
+            width: p.characterId === 'wax' ? 100 : 50, height: p.characterId === 'wax' ? 120 : 50,
+            color: char ? char.color : '#fff',
+            health: maxHp, maxHealth: maxHp,
+            facing: 'right', velocity: {x: 0, y: 0},
+            isGrounded: false, isGrabbingLedge: false, score: 0, speedMult: char?.speedMult || 1.0,
+            isAttacking: false, isStunned: false, isFastFalling: false
+         };
+         
+         socket.emit('lobbyState', { players: lobbyPlayers, state: 'PLAYING' });
+         socket.emit('currentPlayers', players);
+         io.emit('newPlayer', players[p.id]);
+         return;
+      }
+
+      p.isReady = !p.isReady;
+      io.emit('lobbyUpdate', lobbyPlayers);
+
+      const allLobby = Object.values(lobbyPlayers);
+      const activeLobby = allLobby.filter(lp => (Date.now() - lp.lastActive) < 60000);
+      
+      if (activeLobby.length > 0 && activeLobby.every(lp => lp.isReady)) {
+        gameState = 'PLAYING';
+        activeLobby.forEach((lp, idx) => {
+          const char = ROSTER.find(c => c.id === lp.characterId);
+          const maxHp = char ? char.hp : 100;
+          players[lp.id] = {
+            id: lp.id,
+            characterId: lp.characterId || 'void_knight',
+            x: 412 + (idx * 60) - (activeLobby.length * 30),
+            y: lp.characterId === 'wax' ? 350 : 50,
+            width: lp.characterId === 'wax' ? 100 : 50,
+            height: lp.characterId === 'wax' ? 120 : 50,
+            color: char ? char.color : '#fff',
+            health: maxHp,
+            maxHealth: maxHp,
+            facing: 'right',
+            velocity: { x: 0, y: 0 },
+            isAttacking: false,
+            isGrounded: false,
+            isGrabbingLedge: false,
+            isStunned: false,
+            isFastFalling: false,
+            score: 0,
+            speedMult: char ? char.speedMult : 1.0
+          };
+        });
+        io.emit('gameStart', players);
+      }
+    }
+  });
+
+  socket.on('playerMovement', (movementData) => {
+    if (players[socket.id]) {
+      if (players[socket.id].grabbedByPlayerId) return;
+
+      players[socket.id].x = movementData.x;
+      players[socket.id].y = movementData.y;
+      players[socket.id].velocity = movementData.velocity;
+      players[socket.id].facing = movementData.facing;
+      players[socket.id].isGrounded = movementData.isGrounded;
+      players[socket.id].isGrabbingLedge = movementData.isGrabbingLedge;
+      players[socket.id].isStunned = movementData.isStunned;
+      players[socket.id].isFastFalling = movementData.isFastFalling;
+      
+      if (players[socket.id].grabbedPlayerId) {
+          const grabbedId = players[socket.id].grabbedPlayerId;
+          if (grabbedId && players[grabbedId]) {
+              players[grabbedId].x = players[socket.id].x + (players[socket.id].facing === 'right' ? players[socket.id].width : -players[grabbedId].width);
+              players[grabbedId].y = players[socket.id].y;
+              io.emit('forcePosition', { id: grabbedId, x: players[grabbedId].x, y: players[grabbedId].y });
+          }
+      }
+      
+      // Void death check
+      if (players[socket.id].y > 800) {
+        players[socket.id].health = players[socket.id].maxHealth;
+        players[socket.id].x = Math.random() * 400 + 312;
+        players[socket.id].y = 50;
+        players[socket.id].velocity = { x: 0, y: 0 };
+        players[socket.id].isGrabbingLedge = false;
+        
+        const p = players[socket.id];
+        if (p.lastHitBy && Date.now() - p.lastHitBy.time < 5000) {
+            const attacker = players[p.lastHitBy.id];
+            if (attacker) {
+                attacker.score += 1;
+                io.emit('scoreUpdated', { id: attacker.id, score: attacker.score });
+            }
+        } else {
+            p.score = Math.max(0, p.score - 1); // Lose a point for falling
+        }
+        p.lastHitBy = undefined;
+        
+        io.emit('playerRespawned', players[socket.id]);
+        io.emit('scoreUpdated', { id: socket.id, score: players[socket.id].score });
+      } else {
+        // Broadcast to others
+        socket.broadcast.emit('playerMoved', players[socket.id]);
+      }
+    }
+  });
+
+  socket.on('playerAttack', (attackData) => {
+    if (players[socket.id]) {
+      players[socket.id].isAttacking = attackData.isAttacking;
+      socket.broadcast.emit('playerAttacked', players[socket.id]);
+    }
+  });
+  
+  socket.on('playerHit', (data) => {
+      const target = players[data.targetId];
+      if (target) {
+          applyDamage(target, data.damage, socket.id);
+      }
+  });
+
+  socket.on('droneHit', (data) => {
+      if (drones[data.id]) {
+          drones[data.id].hp -= data.damage;
+      }
+  });
+
+  socket.on('useAbility', (data) => {
+      const player = players[socket.id];
+      if (!player || gameState !== 'PLAYING') return;
+
+      if (player.characterId === 'mirage') {
+          if (data.ability === 1) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'card',
+                  x: player.x + (player.facing === 'right' ? player.width : -20),
+                  y: player.y + player.height / 2,
+                  vx: player.facing === 'right' ? 15 : -15,
+                  vy: 0,
+                  ownerId: player.id,
+                  damage: 10,
+                  life: 60
+              };
+          } else if (data.ability === 2) {
+              const id = 'wall_' + entityIdCounter++;
+              walls[id] = {
+                  id,
+                  x: player.x + (player.facing === 'right' ? 80 : -80),
+                  y: player.y - 50,
+                  width: 20,
+                  height: 100,
+                  expires: Date.now() + 5000
+              };
+          } else if (data.ability === 3) {
+              let bestX = player.x;
+              let maxDist = -1;
+              for (let x = 220; x <= 750; x += 50) {
+                  let minDistToPlayer = 9999;
+                  let otherCount = 0;
+                  for (const other of Object.values(players)) {
+                      if (other.id === player.id) continue;
+                      otherCount++;
+                      const dist = Math.abs(x - other.x);
+                      if (dist < minDistToPlayer) minDistToPlayer = dist;
+                  }
+                  if (otherCount === 0) minDistToPlayer = 9999;
+                  if (minDistToPlayer > maxDist) {
+                      maxDist = minDistToPlayer;
+                      bestX = x;
+                  }
+              }
+              player.x = bestX;
+              player.y = 350;
+              io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
+              io.emit('playerEffect', { id: player.id, effect: 'teleport' });
+          }
+      } else if (player.characterId === 'orbo') {
+          if (data.ability === 1) {
+              let target = null;
+              let minDist = 300;
+              for (const other of Object.values(players)) {
+                  if (other.id === player.id) continue;
+                  const distX = other.x - player.x;
+                  const distY = other.y - player.y;
+                  const dist = Math.hypot(distX, distY);
+                  
+                  const isFacingRight = player.facing === 'right' && distX > 0;
+                  const isFacingLeft = player.facing === 'left' && distX < 0;
+                  
+                  if (dist < minDist && Math.abs(distY) < 100 && (isFacingRight || isFacingLeft)) {
+                      minDist = dist;
+                      target = other;
+                  }
+              }
+              if (target) {
+                  player.x = target.x + (player.facing === 'right' ? -player.width - 5 : target.width + 5);
+                  player.y = target.y;
+                  player.deflectTimer = Date.now() + 2000;
+                  io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
+                  io.emit('playerEffect', { id: player.id, effect: 'deflectStart' });
+              }
+          } else if (data.ability === 2) {
+              const id = 'zone_' + entityIdCounter++;
+              zones[id] = {
+                  id,
+                  x: player.x + player.width / 2,
+                  y: player.y + player.height / 2,
+                  radius: 300,
+                  timer: Date.now() + 5000,
+                  ownerId: player.id
+              };
+          } else if (data.ability === 3) {
+              player.safetyWarpState = 'charging';
+              player.safetyWarpTimer = Date.now() + 1000;
+              io.emit('playerEffect', { id: player.id, effect: 'warpChargeStart' });
+          }
+      } else if (player.characterId === 'rica') {
+          if (data.ability === 1) {
+              if (player.throwCooldown && player.throwCooldown > Date.now()) return;
+              if (player.grabbedPlayerId) {
+                  const target = players[player.grabbedPlayerId];
+                  if (target) {
+                      const dmg = target.maxHealth * 0.25;
+                      const beforeHp = target.health;
+                      applyDamage(target, dmg, player.id);
+                      player.grabbedPlayerId = null;
+                      target.grabbedByPlayerId = null;
+                      player.grabTimer = 0;
+                      player.throwCooldown = Date.now() + 5000;
+                      io.emit('playerEffect', { id: player.id, effect: 'ricaSlam' });
+                      if (target.health < beforeHp) {
+                          io.to(target.id).emit('applyKnockback', { vx: 0, vy: 20, stunFrames: 30 });
+                      }
+                  }
+                  return;
+              }
+
+              let target = null;
+              let minDist = 60;
+              for (const other of Object.values(players)) {
+                  if (other.id === player.id) continue;
+                  const distX = other.x - player.x;
+                  const distY = other.y - player.y;
+                  const dist = Math.hypot(distX, distY);
+                  const isFacingRight = player.facing === 'right' && distX > 0 && distX < 60;
+                  const isFacingLeft = player.facing === 'left' && distX < 0 && distX > -60;
+                  if (Math.abs(distY) < 50 && (isFacingRight || isFacingLeft)) {
+                      target = other;
+                      break;
+                  }
+              }
+              if (target) {
+                  player.grabbedPlayerId = target.id;
+                  target.grabbedByPlayerId = player.id;
+                  player.grabTimer = Date.now() + 5000;
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaGrab' });
+              }
+          } else if (data.ability === 2) {
+              if (player.isGrounded) {
+                  player.chargeState = 'charging';
+                  player.chargeTimer = Date.now() + 1000;
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaChargeStart' });
+              }
+          } else if (data.ability === 3) {
+              for(let i = 0; i < 2; i++) {
+                  const id = 'drone_' + entityIdCounter++;
+                  drones[id] = {
+                      id, x: player.x, y: player.y - 40 - (i * 30),
+                      vx: 0, vy: 0,
+                      ownerId: player.id,
+                      hp: 1
+                  };
+              }
+          }
+      } else if (player.characterId === 'chester') {
+          if (data.ability === 1) {
+              player.isInvincible = true;
+              io.emit('playerEffect', { id: player.id, effect: 'toothDash' });
+              // I-frames will be removed by client timing or by server timing. Let's let client send movement, but we can clear invincibility.
+              setTimeout(() => {
+                  if (players[player.id]) players[player.id].isInvincible = false;
+              }, 500);
+          } else if (data.ability === 2) {
+              player.mimicTimer = Date.now() + 5000;
+              io.emit('playerEffect', { id: player.id, effect: 'mimicStart' });
+          } else if (data.ability === 3) {
+              player.healTimer = Date.now() + 5000;
+              player.healLastHit = Date.now();
+              io.emit('playerEffect', { id: player.id, effect: 'healStart' });
+          }
+      } else if (player.characterId === 'pinedo') {
+          if (data.ability === 1) {
+              const hitBox = {
+                  x: player.facing === 'right' ? player.x + player.width : player.x - 40,
+                  y: player.y,
+                  width: 40, height: player.height
+              };
+              for (const target of Object.values(players)) {
+                  if (target.id === player.id) continue;
+                  if (target.x < hitBox.x + hitBox.width && target.x + target.width > hitBox.x &&
+                      target.y < hitBox.y + hitBox.height && target.y + target.height > hitBox.y) {
+                      const dmg = Math.min(30, target.maxHealth * 0.15);
+                      applyDamage(target, dmg, player.id);
+                      if (target.characterId !== 'wax') io.to(target.id).emit('applyKnockback', { vx: player.facing === 'right' ? 10 : -10, vy: -10, stunFrames: 30 });
+                  }
+              }
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 30 });
+              io.emit('playerEffect', { id: player.id, effect: 'headSmash' });
+          } else if (data.ability === 2) {
+              if (player.boomerangActive) return;
+              player.boomerangActive = true;
+              player.isSuperArmor = true;
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 9999 });
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'boomerang',
+                  x: player.x + (player.facing === 'right' ? player.width : -20),
+                  y: player.y + player.height / 2,
+                  vx: player.facing === 'right' ? 15 : -15,
+                  vy: 0,
+                  ownerId: player.id,
+                  damage: 30,
+                  life: 60
+              };
+          } else if (data.ability === 3) {
+              player.womboTimer = Date.now() + 5000;
+              io.emit('playerEffect', { id: player.id, effect: 'womboStart' });
+          }
+      } else if (player.characterId === 'morka') {
+          if (data.ability === 1) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'plate',
+                  x: player.x + (player.facing === 'right' ? player.width : -20),
+                  y: player.y + player.height / 2,
+                  vx: player.facing === 'right' ? 18 : -18,
+                  vy: 0,
+                  ownerId: player.id,
+                  damage: 5,
+                  life: 60
+              };
+          } else if (data.ability === 2) {
+              if (!player.isGrounded) return;
+              const hitBox = {
+                  x: player.facing === 'right' ? player.x + player.width : player.x - 300,
+                  y: player.y,
+                  width: 300, height: player.height
+              };
+              let grabbed = null;
+              for (const other of Object.values(players)) {
+                  if (other.id === player.id) continue;
+                  if (other.x < hitBox.x + hitBox.width && other.x + other.width > hitBox.x &&
+                      other.y < hitBox.y + hitBox.height && other.y + other.height > hitBox.y) {
+                      grabbed = other; break;
+                  }
+              }
+              if (grabbed) {
+                  player.grabbedPlayerId = grabbed.id;
+                  grabbed.grabbedByPlayerId = player.id;
+                  player.grabTimer = Date.now() + 2000;
+                  io.emit('playerEffect', { id: player.id, effect: 'morkaGrab' });
+                  setTimeout(() => { if (players[grabbed.id]) applyDamage(grabbed, 10, player.id); }, 500);
+                  setTimeout(() => { if (players[grabbed.id]) applyDamage(grabbed, 10, player.id); }, 1000);
+                  setTimeout(() => { 
+                      if (players[grabbed.id] && players[player.id]) {
+                          applyDamage(grabbed, 10, player.id);
+                          io.to(grabbed.id).emit('applyKnockback', { vx: 0, vy: -30, stunFrames: 60 });
+                          player.grabbedPlayerId = null;
+                          grabbed.grabbedByPlayerId = null;
+                      }
+                  }, 1500);
+              }
+          } else if (data.ability === 3) {
+              player.isInvincible = true;
+              setTimeout(() => { if (players[player.id]) players[player.id].isInvincible = false; }, 500);
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: -35, stunFrames: 0 }); 
+          }
+      } else if (player.characterId === 'wisp') {
+          if (data.ability === 1) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'fireball',
+                  x: player.x + (player.facing === 'right' ? player.width : -20),
+                  y: player.y + player.height / 2,
+                  vx: player.facing === 'right' ? 8 : -8,
+                  vy: 0,
+                  ownerId: player.id,
+                  damage: 15,
+                  life: 150
+              };
+          } else if (data.ability === 2) {
+              const id = 'wall_' + entityIdCounter++;
+              walls[id] = { 
+                  id, x: player.x + (player.facing === 'right' ? 60 : -60), y: player.y - 30, 
+                  width: 20, height: 80, expires: Date.now() + 5000, type: 'fire', ownerId: player.id 
+              };
+          } else if (data.ability === 3) {
+              if (!player.isGrounded) return;
+              let farthest = null;
+              let maxDist = -1;
+              for (const other of Object.values(players)) {
+                  if (other.id === player.id) continue;
+                  const dist = Math.hypot(other.x - player.x, other.y - player.y);
+                  if (dist > maxDist) { maxDist = dist; farthest = other; }
+              }
+              if (farthest) {
+                  const tempX = player.x, tempY = player.y;
+                  player.x = farthest.x; player.y = farthest.y;
+                  farthest.x = tempX; farthest.y = tempY;
+                  io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
+                  io.emit('forcePosition', { id: farthest.id, x: farthest.x, y: farthest.y });
+                  
+                  const id1 = 'wall_' + entityIdCounter++;
+                  walls[id1] = { id: id1, x: farthest.x - 40, y: farthest.y - 30, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
+                  const id2 = 'wall_' + entityIdCounter++;
+                  walls[id2] = { id: id2, x: farthest.x + farthest.width + 20, y: farthest.y - 30, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
+              }
+          }
+      } else if (player.characterId === 'cole') {
+          if (data.ability === 1) {
+              io.emit('playerEffect', { id: player.id, effect: 'coleRoll' });
+          } else if (data.ability === 2) {
+              let nearest = null;
+              let minDist = 9999;
+              for (const p of Object.values(players)) {
+                  if (p.id === player.id) continue;
+                  const dist = Math.hypot(p.x - player.x, p.y - player.y);
+                  if (dist < minDist) { minDist = dist; nearest = p; }
+              }
+              if (nearest) {
+                  player.x = nearest.x;
+                  player.y = nearest.y - 150;
+                  io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
+                  io.emit('playerEffect', { id: player.id, effect: 'teleport' });
+              }
+          } else if (data.ability === 3) {
+              let crushed = false;
+              for (const p of Object.values(players)) {
+                  if (p.id === player.id) continue;
+                  if (p.x < player.x + player.width && p.x + p.width > player.x && p.y > player.y) {
+                      if (p.health <= 30) {
+                          applyDamage(p, p.maxHealth, player.id, true);
+                          crushed = true;
+                      }
+                  }
+              }
+              if (crushed) io.emit('playerEffect', { id: player.id, effect: 'headSmash' });
+          }
+      } else if (player.characterId === 'oakwell') {
+          if (data.ability === 1) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'thorn' as any,
+                  x: player.x + (player.facing === 'right' ? player.width : -20),
+                  y: player.y + player.height / 2,
+                  vx: player.facing === 'right' ? 25 : -25,
+                  vy: 0,
+                  ownerId: player.id,
+                  damage: 2,
+                  life: 45
+              };
+          } else if (data.ability === 2) {
+              if (player.brambleId && walls[player.brambleId]) return;
+              const id = 'wall_' + entityIdCounter++;
+              walls[id] = {
+                  id, x: player.x, y: player.y + player.height - 10,
+                  width: player.width, height: 10,
+                  expires: Date.now() + 15000,
+                  type: 'bramble', ownerId: player.id
+              };
+              player.brambleId = id;
+          } else if (data.ability === 3) {
+              if (!player.isGrounded) return;
+              const grounded = Object.values(players).filter(p => p.id !== player.id && p.isGrounded);
+              if (grounded.length > 0) {
+                  const target = grounded[Math.floor(Math.random() * grounded.length)];
+                  target.x = player.x;
+                  target.y = player.y;
+                  io.emit('forcePosition', { id: target.id, x: target.x, y: target.y });
+                  if (target.characterId !== 'wax') io.to(target.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 60 });
+                  target.brambleImmune = Date.now() + 3000;
+                  io.emit('playerEffect', { id: target.id, effect: 'brambleImmune' });
+                  io.emit('playerEffect', { id: player.id, effect: 'teleport' });
+              }
+          }
+      } else if (player.characterId === 'pip') {
+          if (data.ability === 1) {
+              const id = 'wall_' + entityIdCounter++;
+              walls[id] = {
+                  id, x: player.x - 50, y: player.y - 80,
+                  width: 150, height: 150,
+                  expires: Date.now() + 6000,
+                  type: 'bloodCloud', ownerId: player.id
+              };
+          } else if (data.ability === 2) {
+              let target = null;
+              let minDist = 120;
+              for (const p of Object.values(players)) {
+                  if (p.id === player.id) continue;
+                  const dist = Math.hypot(p.x - player.x, p.y - player.y);
+                  if (dist < minDist && p.health <= 30) {
+                      minDist = dist;
+                      target = p;
+                  }
+              }
+              if (target) {
+                  player.x = target.x;
+                  player.y = target.y;
+                  io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
+                  applyDamage(target, target.maxHealth, player.id, true);
+                  io.emit('playerEffect', { id: player.id, effect: 'headSmash' });
+              }
+          } else if (data.ability === 3) {
+              const hitBox = {
+                  x: player.facing === 'right' ? player.x + player.width : player.x - 40,
+                  y: player.y,
+                  width: 40, height: player.height
+              };
+              for (const target of Object.values(players)) {
+                  if (target.id === player.id) continue;
+                  if (target.x < hitBox.x + hitBox.width && target.x + target.width > hitBox.x &&
+                      target.y < hitBox.y + hitBox.height && target.y + target.height > hitBox.y) {
+                      applyDamage(target, 15, player.id);
+                      io.to(target.id).emit('applyKnockback', { vx: player.facing === 'right' ? 8 : -8, vy: -5, stunFrames: 15 });
+                  }
+              }
+              io.emit('playerEffect', { id: player.id, effect: 'stab' });
+          }
+      } else if (player.characterId === 'neddy') {
+          if (data.ability === 1) {
+              if (player.hadDronesA || (player.droneACooldown && Date.now() < player.droneACooldown)) return;
+              for (let i = 0; i < 12; i++) {
+                  const id = 'drone_' + entityIdCounter++;
+                  drones[id] = {
+                      id, x: player.x + (Math.random() - 0.5) * 100, y: player.y - 40 + (Math.random() - 0.5) * 100,
+                      vx: 0, vy: 0, ownerId: player.id, hp: 1, type: 'A'
+                  };
+              }
+              player.hadDronesA = true;
+          } else if (data.ability === 2) {
+              if (player.hadDronesB || (player.droneBCooldown && Date.now() < player.droneBCooldown)) return;
+              for (let i = 0; i < 3; i++) {
+                  const id = 'drone_' + entityIdCounter++;
+                  drones[id] = {
+                      id, x: player.x + (Math.random() - 0.5) * 50, y: player.y - 40 + (Math.random() - 0.5) * 50,
+                      vx: 0, vy: 0, ownerId: player.id, hp: 1, type: 'B'
+                  };
+              }
+              player.hadDronesB = true;
+          } else if (data.ability === 3) {
+              if (player.hadDronesC || (player.droneCCooldown && Date.now() < player.droneCCooldown)) return;
+              for (let i = 0; i < 5; i++) {
+                  const id = 'drone_' + entityIdCounter++;
+                  drones[id] = {
+                      id, x: player.x, y: player.y,
+                      vx: 0, vy: 0, ownerId: player.id, hp: 1, type: 'C',
+                      angle: (i / 5) * Math.PI * 2
+                  };
+              }
+              player.hadDronesC = true;
+          }
+      } else if (player.characterId === 'nexus') {
+          if (data.ability === 1) {
+              let hitSomeone = false;
+              if (!player.staticChargeLastHit) player.staticChargeLastHit = Date.now();
+              const seconds = Math.floor((Date.now() - player.staticChargeLastHit) / 1000);
+              const dmg = Math.min(100, 1 + seconds);
+
+              for (const p of Object.values(players)) {
+                  if (p.id === player.id) continue;
+                  const isFacingRight = player.facing === 'right';
+                  const hitboxX = isFacingRight ? player.x + player.width : player.x - 60;
+                  if (p.x < hitboxX + 60 && p.x + p.width > hitboxX && p.y < player.y + player.height && p.y + p.height > player.y) {
+                      applyDamage(p, dmg, player.id);
+                      io.to(p.id).emit('applyKnockback', { vx: isFacingRight ? 10 : -10, vy: -5, stunFrames: 15 });
+                      hitSomeone = true;
+                  }
+              }
+              if (hitSomeone) {
+                  player.staticChargeLastHit = Date.now();
+              }
+              io.emit('playerEffect', { id: player.id, effect: 'nexusMelee' });
+          } else if (data.ability === 2) {
+              const now = Date.now();
+              io.emit('globalFreeze', { endTime: now + 4000 });
+              
+              for (const p of Object.values(players)) {
+                  io.to(p.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 240 }); // Stun on client for 4s
+              }
+
+              setTimeout(() => {
+                  const playingIds = Object.keys(players);
+                  const positions = playingIds.map(id => ({ x: players[id].x, y: players[id].y }));
+                  positions.sort(() => Math.random() - 0.5);
+                  playingIds.forEach((id, idx) => {
+                      if (players[id]) {
+                          players[id].x = positions[idx].x;
+                          players[id].y = positions[idx].y;
+                          io.emit('forcePosition', { id, x: players[id].x, y: players[id].y });
+                          io.emit('playerEffect', { id, effect: 'teleport' });
+                      }
+                  });
+              }, 2000);
+          } else if (data.ability === 3) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'laser',
+                  x: player.x + (player.facing === 'right' ? player.width : -20),
+                  y: player.y + player.height / 2,
+                  startX: player.x,
+                  startY: player.y,
+                  vx: player.facing === 'right' ? 25 : -25,
+                  vy: 0,
+                  ownerId: player.id,
+                  damage: 10,
+                  life: 1500
+              };
+          }
+      } else if (player.characterId === 'lantern') {
+          if (data.ability === 1) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'lantern',
+                  x: player.x, y: player.y, startX: player.x, startY: player.y,
+                  vx: player.facing === 'right' ? 12 : -12, vy: -10,
+                  ownerId: player.id, damage: 20, life: 120
+              };
+          } else if (data.ability === 2) {
+              Object.values(players).forEach(p => {
+                  if (p.id !== player.id) {
+                      p.activeEffects = p.activeEffects || {};
+                      p.activeEffects['lanternBlind'] = Date.now() + 3000;
+                      io.to(p.id).emit('screenEffect', { type: 'blind', duration: 3000 });
+                  }
+              });
+          } else if (data.ability === 3) {
+              let nearestDist = Infinity;
+              let nearestP = null;
+              Object.values(players).forEach(p => {
+                  if (p.id !== player.id && p.hp > 0) {
+                      const dist = Math.hypot(p.x - player.x, p.y - player.y);
+                      if (dist < nearestDist) { nearestDist = dist; nearestP = p; }
+                  }
+              });
+              const targetX = nearestP ? nearestP.x : player.x + (player.facing === 'right' ? 100 : -100);
+              const targetY = nearestP ? nearestP.y : player.y;
+              for(let i=0; i<3; i++) {
+                  setTimeout(() => {
+                      if (!players[player.id]) return;
+                      const dx = targetX - player.x;
+                      const dy = targetY - player.y;
+                      const mag = Math.hypot(dx, dy) || 1;
+                      const id = 'proj_' + entityIdCounter++;
+                      projectiles[id] = {
+                          id, type: 'book',
+                          x: player.x, y: player.y, startX: player.x, startY: player.y,
+                          vx: (dx / mag) * 15, vy: (dy / mag) * 15,
+                          ownerId: player.id, damage: 15, life: 2000
+                      };
+                  }, i * 200);
+              }
+          }
+      } else if (player.characterId === 'wax') {
+          if (data.ability === 1) {
+              Object.values(players).forEach(p => {
+                  if (p.id !== player.id && p.health > 0) {
+                      const dx = p.x - player.x;
+                      const dy = p.y - player.y;
+                      const mag = Math.hypot(dx, dy) || 1;
+                      const id = 'proj_' + entityIdCounter++;
+                      projectiles[id] = {
+                          id, type: 'dart',
+                          x: player.x + player.width/2, y: player.y + player.height/2, startX: player.x, startY: player.y,
+                          vx: (dx / mag) * 10, vy: (dy / mag) * 10,
+                          ownerId: player.id, damage: 5, life: 4000
+                      };
+                  }
+              });
+          } else if (data.ability === 2) {
+              for(let i=0; i<15; i++) {
+                  const id = 'proj_' + entityIdCounter++;
+                  projectiles[id] = {
+                      id, type: 'fallingBook',
+                      x: -200 + Math.random() * 1400, y: -100, startX: 0, startY: -100,
+                      vx: 0, vy: 8 + Math.random() * 4,
+                      ownerId: player.id, damage: 15, life: 5000
+                  };
+              }
+          } else if (data.ability === 3) {
+              for(let i=0; i<10; i++) {
+                  const id1 = 'proj_' + entityIdCounter++;
+                  projectiles[id1] = {
+                      id: id1, type: 'inkBlob',
+                      x: -100, y: Math.random() * 800, startX: -100, startY: 0,
+                      vx: 6 + Math.random()*4, vy: 0, ownerId: player.id, damage: 20, life: 6000
+                  };
+                  const id2 = 'proj_' + entityIdCounter++;
+                  projectiles[id2] = {
+                      id: id2, type: 'inkBlob',
+                      x: 1300, y: Math.random() * 800, startX: 1300, startY: 0,
+                      vx: -6 - Math.random()*4, vy: 0, ownerId: player.id, damage: 20, life: 6000
+                  };
+              }
+          }
+      } else if (player.characterId === 'kaelen') {
+          if (data.ability === 1) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'bullet',
+                  x: player.facing === 'right' ? player.x + player.width : player.x, y: player.y + player.height/2, 
+                  startX: player.x, startY: player.y,
+                  vx: player.facing === 'right' ? 25 : -25, vy: 0,
+                  ownerId: player.id, damage: 3, life: 1500
+              };
+          } else if (data.ability === 2) {
+              if (player.kaelenBombCD && Date.now() < player.kaelenBombCD) return;
+              if (player.kaelenBomb) {
+                  // Detonate
+                  const bombX = player.kaelenBomb.x;
+                  const bombY = player.kaelenBomb.y;
+                  player.kaelenBombCD = Date.now() + 10000;
+                  player.kaelenBomb = null;
+                  io.emit('playerEffect', { id: player.id, effect: 'kaelenDetonate', x: bombX, y: bombY });
+                  for (const p of Object.values(players)) {
+                      if (p.id === player.id) continue;
+                      const dist = Math.hypot(p.x + p.width/2 - bombX, p.y + p.height/2 - bombY);
+                      if (dist < 150) {
+                          applyDamage(p, 50, player.id, true);
+                          if (p.characterId !== 'wax') io.to(p.id).emit('applyKnockback', { vx: (p.x + p.width/2 > bombX ? 15 : -15), vy: -15, stunFrames: 30 });
+                      }
+                  }
+              } else {
+                  // Place bomb
+                  player.kaelenBomb = { x: player.x + player.width/2, y: player.y + player.height/2 };
+                  io.emit('playerEffect', { id: player.id, effect: 'kaelenBombPlaced', x: player.kaelenBomb.x, y: player.kaelenBomb.y });
+              }
+          } else if (data.ability === 3) {
+              // Tactical roll — grant i-frames server side for 500ms
+              player.isInvincible = true;
+              player.activeEffects = player.activeEffects || {};
+              player.activeEffects['kaelenRoll'] = Date.now() + 500;
+              io.emit('playerEffect', { id: player.id, effect: 'kaelenRoll' });
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      players[player.id].isInvincible = false;
+                  }
+              }, 500);
+          }
+      } else if (player.characterId === 'luma') {
+          if (data.ability === 1) {
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'paintLob',
+                  x: player.x, y: player.y, startX: player.x, startY: player.y,
+                  vx: player.facing === 'right' ? 15 : -15, vy: -5,
+                  ownerId: player.id, damage: 5, life: 120
+              };
+          } else if (data.ability === 2) {
+              if (!player.isGrounded) return;
+              const id = 'proj_' + entityIdCounter++;
+              projectiles[id] = {
+                  id, type: 'paintTrap',
+                  x: player.x, y: player.y + player.height - 10, startX: player.x, startY: player.y,
+                  vx: 0, vy: 0, ownerId: player.id, damage: 15, life: 300
+              };
+          } else if (data.ability === 3) {
+              for(let i=0; i<8; i++) {
+                  const angle = (i / 8) * Math.PI * 2;
+                  const id = 'proj_' + entityIdCounter++;
+                  projectiles[id] = {
+                      id, type: 'paintLob',
+                      x: player.x, y: player.y, startX: player.x, startY: player.y,
+                      vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12,
+                      ownerId: player.id, damage: 5, life: 1500
+                  };
+              }
+          }
+      }
+  });
+
+  socket.on('executeSafetyWarp', (data) => {
+      const player = players[socket.id];
+      if (player && player.safetyWarpState === 'ready') {
+          player.safetyWarpState = 'none';
+          if (data.dir === 'left') { player.x = 220; player.y = 350; }
+          else if (data.dir === 'right') { player.x = 762 - player.width; player.y = 350; }
+          else if (data.dir === 'up') { player.x = 512 - player.width/2; player.y = 100; }
+          else if (data.dir === 'down') { player.x = 512 - player.width/2; player.y = 350; }
+          io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
+          io.emit('playerEffect', { id: player.id, effect: 'warpExecute' });
+          io.emit('playerEffect', { id: player.id, effect: 'teleport' });
+      }
+  });
+
+  socket.on('playerKnockback', (data) => {
+    socket.to(data.targetId).emit('applyKnockback', data);
+  });
+
+  socket.on('groundSlamEffect', (data) => {
+    socket.broadcast.emit('spawnGroundSlam', data);
+  });
+});
+
+const PORT = 3000;
+
+// Integrating Vite in development
+async function startServer() {
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(__dirname, 'dist')));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+  } else {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+startServer();
