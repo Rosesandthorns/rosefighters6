@@ -1637,7 +1637,7 @@ export default function GameCanvas() {
 
         <div className="relative z-10 w-full max-w-5xl mx-auto flex flex-col p-8 flex-1">
           <header className="mb-12 text-center">
-            <h1 className="text-4xl font-black tracking-tighter italic text-white mb-2">CHOOSE YOUR FIGHTER</h1>
+            <h1 className="text-4xl font-black tracking-tighter italic text-white mb-2">ROSE FIGHTERS</h1>
             <p className="text-indigo-400 text-sm uppercase tracking-widest font-bold">Waiting for players...</p>
           </header>
 
@@ -1730,7 +1730,7 @@ export default function GameCanvas() {
       <header className="relative z-10 flex justify-between items-center px-12 py-8 shrink-0">
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-[0.3em] text-indigo-400 font-bold">Multiplayer Session</span>
-          <h1 className="text-2xl font-black tracking-tighter italic">VOID BRAWLERS <span className="text-indigo-500">α</span></h1>
+          <h1 className="text-2xl font-black tracking-tighter italic">ROSE FIGHTERS <span className="text-indigo-500">α</span></h1>
         </div>
         <div className="flex items-center gap-6">
           <div className="flex flex-col items-end">
