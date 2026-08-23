@@ -1720,16 +1720,11 @@ export default function GameCanvas() {
                 // For attack sprites (160px), body is in the left 128px portion (faces left by default).
                 // Extension (32px scaled) goes to the right for left-facing, left for right-facing.
                 const playerCenterX = p.x + p.width / 2;
-                const attackExtW = isAttack ? drawH * (32 / 128) : 0;
-                // When facing left: body portion is left 128px of 160px → left edge = playerCenterX - drawH/2
-                // (no shift needed, extension goes right naturally)
-                // When facing right (flipped): extension goes left, so shift right by attackExtW to re-center body
-                let left = playerCenterX - drawW / 2;
-                if (isAttack && p.facing === 'right') {
-                  left = playerCenterX - drawW / 2 + attackExtW;
-                } else if (isAttack && p.facing === 'left') {
-                  left = playerCenterX - drawW / 2;
-                }
+                // Always center the sprite on the player center.
+                // CSS scaleX(-1) mirrors around the element's own center, so the
+                // 32px attack extension naturally flips to the correct (forward) side.
+                // No manual offset needed for either facing direction.
+                const left = playerCenterX - drawW / 2;
 
                 return (
                   <img
