@@ -1071,25 +1071,29 @@ io.on('connection', (socket) => {
               player.boomerangActive = true;
               player.isSuperArmor = true;
               player.pinedoState = 'attack2';
-              // Freeze during throw animation (~600ms), then go to waiting
+              // Freeze during throw animation (730ms = attack2 gif duration), then go to waiting
               io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 9999 });
               io.emit('playerEffect', { id: player.id, effect: 'pinedoAttack2Start' });
+              const castFacing = player.facing;
+              const castX = player.x;
+              const castY = player.y;
               setTimeout(() => {
                   if (!players[player.id]) return;
                   players[player.id].pinedoState = 'waiting';
                   io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'waiting' });
-              }, 600);
-              const id = 'proj_' + entityIdCounter++;
-              projectiles[id] = {
-                  id, type: 'boomerang',
-                  x: player.x + (player.facing === 'right' ? player.width : -20),
-                  y: player.y + player.height / 2,
-                  vx: player.facing === 'right' ? 15 : -15,
-                  vy: 0,
-                  ownerId: player.id,
-                  damage: 30,
-                  life: 60
-              };
+                  // Fire projectile only after the throw animation finishes
+                  const pid = 'proj_' + entityIdCounter++;
+                  projectiles[pid] = {
+                      id: pid, type: 'boomerang',
+                      x: castX + (castFacing === 'right' ? players[player.id].width : -20),
+                      y: castY + players[player.id].height / 2,
+                      vx: castFacing === 'right' ? 15 : -15,
+                      vy: 0,
+                      ownerId: player.id,
+                      damage: 30,
+                      life: 60
+                  };
+              }, 730);
           } else if (data.ability === 3) {
               if (player.pinedoState === 'attack1' || player.pinedoState === 'attack2' || player.pinedoState === 'waiting') return;
               const now2 = Date.now();

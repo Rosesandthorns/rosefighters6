@@ -1028,6 +1028,9 @@ export default function GameCanvas() {
         isStunned: myPlayer.isStunned,
         isFastFalling: myPlayer.isFastFalling
       });
+
+      // Keep playersList in sync every frame so DOM sprite overlay updates position
+      setPlayersList(Object.values(playersRef.current));
     };
 
     const checkHits = (attacker: Player) => {
@@ -1188,8 +1191,12 @@ export default function GameCanvas() {
                   if (headImg && headImg.complete && headImg.naturalWidth > 0) {
                       ctx.save();
                       ctx.translate(proj.x, proj.y);
-                      ctx.rotate(Date.now() / 100);
-                      ctx.drawImage(headImg, -16, -16, 32, 32);
+                      ctx.rotate(Date.now() / 120);
+                      // Native size 25×78 — draw at 2× for visibility: 50×156 but that's too tall
+                      // Scale to a sensible display size keeping aspect: height=40, width=40*(25/78)≈13
+                      const ph = 40;
+                      const pw = ph * (25 / 78);
+                      ctx.drawImage(headImg, -pw / 2, -ph / 2, pw, ph);
                       ctx.restore();
                   } else {
                       // Fallback
@@ -1318,96 +1325,22 @@ export default function GameCanvas() {
             ctx.restore();
         }
 
-        // ── Pinedo sprite rendering ──────────────────────────────────────────
+        // ── Pinedo: hidden from canvas — rendered as DOM overlay beneath ──────
         if (player.characterId === 'pinedo') {
             hideStandardBody = true;
-            const imgs = pinedoImgs.current;
-            const state = player.pinedoState || 'idle';
-            const facingRight = player.facing === 'right';
-
-            // Choose the correct image
-            let img: HTMLImageElement | null = null;
-            let spriteW = 128; // logical sprite width for normal frames
-            let spriteH = 128;
-            let attackOffset = 0; // extra x pixels added to the right in attack sprites (160-128=32)
-
-            if (state === 'idle' || state === 'waiting') {
-                img = state === 'waiting' ? imgs['waiting'] : imgs['idle'];
-            } else if (state === 'run') {
-                img = imgs['run'];
-            } else if (state === 'attack1') {
-                img = imgs['attack1'];
-                spriteW = 160;
-                attackOffset = 32;
-            } else if (state === 'attack2') {
-                img = imgs['attack2'];
-                spriteW = 160;
-                attackOffset = 32;
-            } else if (state === 'attack3start') {
-                img = imgs['attack3s'];
-            } else if (state === 'attack3main') {
-                img = imgs['attack3m'];
-            }
-
-            if (img && img.complete && img.naturalWidth > 0) {
-                // Scale so sprite height = player.height + a bit for visual size
-                const drawH = player.height * (128 / 50) * 0.55; // ~56px tall rendered
-                const drawW = drawH * (spriteW / spriteH);
-
-                // Sprite faces LEFT by default.
-                // For normal (128px) sprites: anchor bottom-center to player collision box bottom-center
-                // Apply -8px vertical offset so bottom of sprite (which has ~8px of transparent/angled pixels) aligns with collision floor
-                const FOOT_OFFSET = 8;
-                const playerCenterX = player.x + player.width / 2;
-                const playerBottom  = player.y + player.height - FOOT_OFFSET;
-
-                // For attack sprites (160px wide), Pinedo is at same body position but sprite
-                // extends 32px to the RIGHT of her body (attack extends rightward when facing left).
-                // When facing RIGHT we flip, so the extension goes leftward.
-                // Anchor: right edge of Pinedo body area (not full sprite) = playerCenterX + normalBodyHalfW
-                const normalBodyHalfW = drawH * (128 / 128) / 2; // half-width of the 128px portion scaled
-                const attackExtendW   = drawH * (attackOffset / spriteH); // scaled width of the 32px extension
-
-                ctx.save();
-                if (facingRight) {
-                    // Flip horizontally around player center
-                    ctx.translate(playerCenterX, playerBottom - drawH);
-                    ctx.scale(-1, 1);
-                    ctx.translate(-drawW / 2, 0);
-                    if (attackOffset > 0) {
-                        // When facing right and flipped, extension now goes left (correct: attack is forward)
-                        // Shift so the body portion aligns with player center
-                        ctx.translate(attackExtendW, 0);
-                    }
-                } else {
-                    // Facing left — default orientation
-                    ctx.translate(playerCenterX - drawW / 2, playerBottom - drawH);
-                    if (attackOffset > 0) {
-                        // Extension goes right (attack forward when facing left) — no extra shift needed
-                        // But shift left by half-extension so body stays centered
-                        ctx.translate(-attackExtendW / 2, 0);
-                    }
-                }
-                ctx.drawImage(img, 0, 0, drawW, drawH);
-                ctx.restore();
-
-                // Attack3 radius indicator
-                if (state === 'attack3start' || state === 'attack3main') {
-                    const cx = player.pinedoAttack3Center?.x ?? (player.x + player.width / 2);
-                    const cy = player.pinedoAttack3Center?.y ?? (player.y + player.height / 2);
-                    ctx.strokeStyle = state === 'attack3main' ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
-                    ctx.lineWidth = 2;
-                    ctx.setLineDash([6, 4]);
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, 80, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-                    ctx.lineWidth = 1;
-                }
-            } else {
-                // Fallback: colored rect while images load
-                ctx.fillStyle = player.color;
-                ctx.fillRect(player.x, player.y, player.width, player.height);
+            // Still draw attack3 radius on canvas (pure shapes, no GIF needed)
+            const pState = player.pinedoState || 'idle';
+            if (pState === 'attack3start' || pState === 'attack3main') {
+                const cx = player.pinedoAttack3Center?.x ?? (player.x + player.width / 2);
+                const cy = player.pinedoAttack3Center?.y ?? (player.y + player.height / 2);
+                ctx.strokeStyle = pState === 'attack3main' ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                ctx.arc(cx, cy, 80, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.lineWidth = 1;
             }
         }
 
@@ -1756,6 +1689,68 @@ export default function GameCanvas() {
               style={{ imageRendering: 'pixelated' }}
               onContextMenu={(e) => e.preventDefault()}
             />
+            {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
+            <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600 }}>
+              {playersList.filter(p => p.characterId === 'pinedo').map(p => {
+                const state = p.pinedoState || 'idle';
+                // Pick src and whether sprite is 160px wide (attack) or 128px
+                const isAttack = state === 'attack1' || state === 'attack2';
+                const src =
+                  state === 'run'         ? '/Pinedo/PinedoRungif.gif'      :
+                  state === 'attack1'     ? '/Pinedo/PinedoAttack1gif.gif'  :
+                  state === 'attack2'     ? '/Pinedo/PinedoAttack2gif.gif'  :
+                  state === 'waiting'     ? '/Pinedo/PinedoWaiting.png'     :
+                  state === 'attack3start'? '/Pinedo/PinedoAttack3start.gif':
+                  state === 'attack3main' ? '/Pinedo/PinedoAttack3main.gif' :
+                                            '/Pinedo/PinedoIdlegif.gif';
+
+                // Render height: scale sprite so it visually covers the 50px collision box
+                // 128px sprite → we want it to look ~90px tall on screen for visibility
+                const drawH = 90;
+                // For 128px wide sprites, drawW = drawH. For 160px attack sprites, drawW = drawH * (160/128)
+                const drawW = isAttack ? drawH * (160 / 128) : drawH;
+
+                // Anchor: sprite bottom = collision box bottom - 8px foot offset
+                // collision box bottom = p.y + p.height
+                const FOOT_OFFSET = 8;
+                const bottom = p.y + p.height - FOOT_OFFSET;
+                const top = bottom - drawH;
+
+                // Horizontal: center body on player center
+                // For attack sprites (160px), body is in the left 128px portion (faces left by default).
+                // Extension (32px scaled) goes to the right for left-facing, left for right-facing.
+                const playerCenterX = p.x + p.width / 2;
+                const attackExtW = isAttack ? drawH * (32 / 128) : 0;
+                // When facing left: body portion is left 128px of 160px → left edge = playerCenterX - drawH/2
+                // (no shift needed, extension goes right naturally)
+                // When facing right (flipped): extension goes left, so shift right by attackExtW to re-center body
+                let left = playerCenterX - drawW / 2;
+                if (isAttack && p.facing === 'right') {
+                  left = playerCenterX - drawW / 2 + attackExtW;
+                } else if (isAttack && p.facing === 'left') {
+                  left = playerCenterX - drawW / 2;
+                }
+
+                return (
+                  <img
+                    key={p.id + '-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width: drawW,
+                      height: drawH,
+                      imageRendering: 'pixelated',
+                      // Sprites face LEFT by default — flip for right-facing
+                      transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
+                      transformOrigin: 'center center',
+                    }}
+                  />
+                );
+              })}
+            </div>
         </div>
       </main>
 
