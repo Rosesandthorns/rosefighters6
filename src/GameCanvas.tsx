@@ -1742,9 +1742,7 @@ export default function GameCanvas() {
               {mirageOverlay.map(m => {
                 const drawH = 62;
                 const drawW = drawH;
-                // Mirage hitbox is 12x40 — center sprite on hitbox
-                // hitbox offsetX from sprite left = 53*scale ≈ 21px in sprite space
-                // We anchor sprite so its center aligns with hitbox center
+                // Mirage hitbox is 12x40 — sprite bottom = hitbox bottom, centered horizontally
                 const hitboxCenterX = m.x + 6;  // m.x + width/2
                 const hitboxBottom  = m.y + 40;
                 const left = hitboxCenterX - drawW / 2;
