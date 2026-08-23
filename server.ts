@@ -68,6 +68,14 @@ interface Player {
   boomerangActive?: boolean;
   womboTimer?: number;
   isSuperArmor?: boolean;
+  // Pinedo sprite state
+  pinedoState?: 'idle' | 'run' | 'attack1' | 'attack2' | 'waiting' | 'attack3start' | 'attack3main';
+  pinedoAttack1End?: number;       // timestamp when attack1 animation ends
+  pinedoAttack1DmgStart?: number;  // timestamp when damage window opens
+  pinedoAttack1DmgEnd?: number;    // timestamp when damage window closes
+  pinedoAttack1Hit?: boolean;      // already dealt damage this swing
+  pinedoAttack3Center?: { x: number; y: number }; // center of attack3 radius
+  pinedoAttack3End?: number;       // timestamp when attack3 ends
   lastHitBy?: { id: string, time: number };
   brambleId?: string;
   brambleImmune?: number;
@@ -279,6 +287,69 @@ setInterval(() => {
                 }
             }
         }
+
+        // Pinedo attack1 damage window
+        if (player.characterId === 'pinedo' && player.pinedoState === 'attack1' &&
+            !player.pinedoAttack1Hit &&
+            player.pinedoAttack1DmgStart && now >= player.pinedoAttack1DmgStart &&
+            player.pinedoAttack1DmgEnd && now < player.pinedoAttack1DmgEnd) {
+            player.pinedoAttack1Hit = true;
+            // Hitbox derived from 128px sprite space: x=47,y=65,w=26,h=52 scaled to 50px game unit
+            // scale = 50/128 ≈ 0.39 — add game-feel padding
+            const hbOffsetX = 18; // 47 * 50/128
+            const hbOffsetY = 25; // 65 * 50/128
+            const hbW = 30;       // 26 * 50/128 + padding
+            const hbH = 30;       // 52 * 50/128 + padding
+            // Sprites face LEFT — attack extends to the right of sprite
+            // Facing left: hitbox is on the right side (front); facing right: mirror to left side
+            const hitBox = {
+                x: player.facing === 'left'
+                    ? player.x + hbOffsetX
+                    : player.x + player.width - hbOffsetX - hbW,
+                y: player.y + hbOffsetY,
+                width: hbW,
+                height: hbH
+            };
+            for (const target of Object.values(players)) {
+                if (target.id === player.id) continue;
+                if (target.x < hitBox.x + hitBox.width && target.x + target.width > hitBox.x &&
+                    target.y < hitBox.y + hitBox.height && target.y + target.height > hitBox.y) {
+                    const dmg = Math.min(30, target.maxHealth * 0.15);
+                    applyDamage(target, dmg, player.id);
+                    if (target.characterId !== 'wax') {
+                        io.to(target.id).emit('applyKnockback', { vx: player.facing === 'left' ? -12 : 12, vy: -10, stunFrames: 25 });
+                    }
+                }
+            }
+        }
+
+        // Pinedo attack3 damaging frames — end if player moved out of radius
+        if (player.characterId === 'pinedo' && player.pinedoState === 'attack3main' &&
+            player.pinedoAttack3Center && player.pinedoAttack3End && now < player.pinedoAttack3End) {
+            const cx = player.pinedoAttack3Center.x;
+            const cy = player.pinedoAttack3Center.y;
+            const dist = Math.hypot(player.x + player.width / 2 - cx, player.y + player.height / 2 - cy);
+            if (dist > 80) {
+                player.pinedoState = 'idle';
+                player.pinedoAttack3End = 0;
+                io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
+            } else if (now % 150 < 35) {
+                for (const target of Object.values(players)) {
+                    if (target.id === player.id) continue;
+                    const td = Math.hypot(target.x + target.width / 2 - cx, target.y + target.height / 2 - cy);
+                    if (td < 80) {
+                        applyDamage(target, 8, player.id);
+                        if (target.characterId !== 'wax') {
+                            io.to(target.id).emit('applyKnockback', { vx: (target.x > cx ? 4 : -4), vy: -3, stunFrames: 5 });
+                        }
+                    }
+                }
+            }
+        } else if (player.characterId === 'pinedo' && player.pinedoState === 'attack3main' &&
+            player.pinedoAttack3End && now >= player.pinedoAttack3End) {
+            player.pinedoState = 'idle';
+            io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
+        }
         
         // Fire wall damage
         for (const wall of Object.values(walls)) {
@@ -400,9 +471,9 @@ setInterval(() => {
                     if (len < 30) {
                         owner.boomerangActive = false;
                         owner.isSuperArmor = false;
+                        owner.pinedoState = 'idle';
                         io.to(owner.id).emit('clearStun');
-                        // We need io to emit clearStun.
-                        // I will handle clearStun directly here
+                        io.emit('playerEffect', { id: owner.id, effect: 'pinedoStateChange', state: 'idle' });
                         proj.life = -1; // force delete
                     } else {
                         proj.vx = (dx / len) * 15;
@@ -975,27 +1046,39 @@ io.on('connection', (socket) => {
           }
       } else if (player.characterId === 'pinedo') {
           if (data.ability === 1) {
-              const hitBox = {
-                  x: player.facing === 'right' ? player.x + player.width : player.x - 40,
-                  y: player.y,
-                  width: 40, height: player.height
-              };
-              for (const target of Object.values(players)) {
-                  if (target.id === player.id) continue;
-                  if (target.x < hitBox.x + hitBox.width && target.x + target.width > hitBox.x &&
-                      target.y < hitBox.y + hitBox.height && target.y + target.height > hitBox.y) {
-                      const dmg = Math.min(30, target.maxHealth * 0.15);
-                      applyDamage(target, dmg, player.id);
-                      if (target.characterId !== 'wax') io.to(target.id).emit('applyKnockback', { vx: player.facing === 'right' ? 10 : -10, vy: -10, stunFrames: 30 });
-                  }
-              }
-              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 30 });
-              io.emit('playerEffect', { id: player.id, effect: 'headSmash' });
+              // Can't use while already in attack1, attack2, or waiting
+              if (player.pinedoState === 'attack1' || player.pinedoState === 'attack2' || player.pinedoState === 'waiting') return;
+              const now2 = Date.now();
+              // Total animation: 670ms windup + 220ms damage + 90ms recovery = 980ms
+              player.pinedoState = 'attack1';
+              player.pinedoAttack1End = now2 + 980;
+              player.pinedoAttack1DmgStart = now2 + 670;
+              player.pinedoAttack1DmgEnd = now2 + 890;
+              player.pinedoAttack1Hit = false;
+              // Freeze player for duration
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: Math.ceil(980 / 33) });
+              io.emit('playerEffect', { id: player.id, effect: 'pinedoAttack1Start' });
+              // Clear freeze after 980ms
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].pinedoState = 'idle';
+                  io.to(player.id).emit('clearStun');
+                  io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
+              }, 980);
           } else if (data.ability === 2) {
               if (player.boomerangActive) return;
+              if (player.pinedoState === 'attack1' || player.pinedoState === 'attack2' || player.pinedoState === 'waiting') return;
               player.boomerangActive = true;
               player.isSuperArmor = true;
+              player.pinedoState = 'attack2';
+              // Freeze during throw animation (~600ms), then go to waiting
               io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 9999 });
+              io.emit('playerEffect', { id: player.id, effect: 'pinedoAttack2Start' });
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].pinedoState = 'waiting';
+                  io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'waiting' });
+              }, 600);
               const id = 'proj_' + entityIdCounter++;
               projectiles[id] = {
                   id, type: 'boomerang',
@@ -1008,8 +1091,25 @@ io.on('connection', (socket) => {
                   life: 60
               };
           } else if (data.ability === 3) {
-              player.womboTimer = Date.now() + 5000;
-              io.emit('playerEffect', { id: player.id, effect: 'womboStart' });
+              if (player.pinedoState === 'attack1' || player.pinedoState === 'attack2' || player.pinedoState === 'waiting') return;
+              const now2 = Date.now();
+              player.pinedoState = 'attack3start';
+              player.pinedoAttack3Center = { x: player.x + player.width / 2, y: player.y + player.height / 2 };
+              // Windup gif plays for ~800ms, then main damaging frames for ~600ms
+              io.emit('playerEffect', { id: player.id, effect: 'pinedoAttack3Start' });
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].pinedoState = 'attack3main';
+                  players[player.id].pinedoAttack3End = Date.now() + 600;
+                  players[player.id].pinedoAttack3Center = { x: players[player.id].x + players[player.id].width / 2, y: players[player.id].y + players[player.id].height / 2 };
+                  io.emit('playerEffect', { id: player.id, effect: 'pinedoAttack3Main' });
+              }, 800);
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].pinedoState = 'idle';
+                  players[player.id].pinedoAttack3End = 0;
+                  io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
+              }, 1400);
           }
       } else if (player.characterId === 'morka') {
           if (data.ability === 1) {

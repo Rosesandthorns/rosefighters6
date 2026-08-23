@@ -28,6 +28,8 @@ interface Player {
   safetyWarpState?: 'none' | 'charging' | 'ready';
   dots?: { damagePerTick: number; ticksLeft: number; nextTick: number }[];
   activeEffects?: { [effectName: string]: number };
+  pinedoState?: 'idle' | 'run' | 'attack1' | 'attack2' | 'waiting' | 'attack3start' | 'attack3main';
+  pinedoAttack3Center?: { x: number; y: number };
 }
 
 interface Particle {
@@ -147,6 +149,27 @@ export default function GameCanvas() {
   const stunTimerRef = useRef<number>(0);
   const particlesRef = useRef<Particle[]>([]);
   const kaelenMovingRef = useRef<boolean>(false);
+
+  // Pinedo sprite images — loaded once
+  const pinedoImgs = useRef<Record<string, HTMLImageElement>>({});
+  useEffect(() => {
+    const assets: Record<string, string> = {
+      idle:       '/Pinedo/PinedoIdlegif.gif',
+      run:        '/Pinedo/PinedoRungif.gif',
+      attack1:    '/Pinedo/PinedoAttack1gif.gif',
+      attack2:    '/Pinedo/PinedoAttack2gif.gif',
+      waiting:    '/Pinedo/PinedoWaiting.png',
+      attack3s:   '/Pinedo/PinedoAttack3start.gif',
+      attack3m:   '/Pinedo/PinedoAttack3main.gif',
+      projectile: '/Pinedo/PinedoProjectile.png',
+      icon:       '/Pinedo/PinedoIcon.png',
+    };
+    Object.entries(assets).forEach(([key, src]) => {
+      const img = new Image();
+      img.src = src;
+      pinedoImgs.current[key] = img;
+    });
+  }, []);
 
   const spawnSlamParticles = (x: number, y: number, color: string) => {
     for (let i = 0; i < 30; i++) {
@@ -389,6 +412,21 @@ export default function GameCanvas() {
         }
         if (data.effect === 'hit') {
             spawnSlamParticles(p.x + p.width/2, p.y + p.height/2, '#ef4444');
+        }
+        if (data.effect === 'pinedoStateChange' && (data as any).state) {
+            p.pinedoState = (data as any).state;
+        }
+        if (data.effect === 'pinedoAttack1Start') {
+            p.pinedoState = 'attack1';
+        }
+        if (data.effect === 'pinedoAttack2Start') {
+            p.pinedoState = 'attack2';
+        }
+        if (data.effect === 'pinedoAttack3Start') {
+            p.pinedoState = 'attack3start';
+        }
+        if (data.effect === 'pinedoAttack3Main') {
+            p.pinedoState = 'attack3main';
         }
     });
 
@@ -693,6 +731,13 @@ export default function GameCanvas() {
               // Apply movement
               myPlayer.velocity.x = moveTarget;
               kaelenMovingRef.current = moveTarget !== 0;
+              // Update Pinedo run/idle state from movement (only when not in an attack)
+              if (myPlayer.characterId === 'pinedo') {
+                const attackStates = ['attack1','attack2','waiting','attack3start','attack3main'];
+                if (!attackStates.includes(myPlayer.pinedoState || '')) {
+                  myPlayer.pinedoState = moveTarget !== 0 ? 'run' : 'idle';
+                }
+              }
 
               // Jump
               if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && myPlayer.isGrounded && !(myPlayer.activeEffects?.['ricaCharge'] > Date.now()) && myPlayer.characterId !== 'wax') {
@@ -1136,18 +1181,37 @@ export default function GameCanvas() {
               ctx.lineTo(proj.x + (proj.vx > 0 ? 15 : -15), proj.y + 4);
               ctx.fill();
           } else if (proj.type === 'boomerang') {
-              ctx.save();
-              ctx.translate(proj.x + 15, proj.y + 15);
-              ctx.rotate(Date.now() / 100);
-              ctx.fillStyle = '#fff';
-              ctx.beginPath();
-              ctx.moveTo(-15, -15);
-              ctx.lineTo(15, 0);
-              ctx.lineTo(-15, 15);
-              ctx.lineTo(-5, 0);
-              ctx.closePath();
-              ctx.fill();
-              ctx.restore();
+              // If owner is Pinedo, draw the spinning head projectile
+              const boomerangOwner = Object.values(playersRef.current).find(p => p.id === proj.ownerId);
+              if (boomerangOwner?.characterId === 'pinedo') {
+                  const headImg = pinedoImgs.current['projectile'];
+                  if (headImg && headImg.complete && headImg.naturalWidth > 0) {
+                      ctx.save();
+                      ctx.translate(proj.x, proj.y);
+                      ctx.rotate(Date.now() / 100);
+                      ctx.drawImage(headImg, -16, -16, 32, 32);
+                      ctx.restore();
+                  } else {
+                      // Fallback
+                      ctx.fillStyle = '#fff';
+                      ctx.beginPath();
+                      ctx.arc(proj.x, proj.y, 10, 0, Math.PI * 2);
+                      ctx.fill();
+                  }
+              } else {
+                  ctx.save();
+                  ctx.translate(proj.x + 15, proj.y + 15);
+                  ctx.rotate(Date.now() / 100);
+                  ctx.fillStyle = '#fff';
+                  ctx.beginPath();
+                  ctx.moveTo(-15, -15);
+                  ctx.lineTo(15, 0);
+                  ctx.lineTo(-15, 15);
+                  ctx.lineTo(-5, 0);
+                  ctx.closePath();
+                  ctx.fill();
+                  ctx.restore();
+              }
           } else if (proj.type === 'lantern') {
               // Glowing lantern lob
               ctx.save();
@@ -1252,6 +1316,99 @@ export default function GameCanvas() {
             ctx.fillStyle = player.color;
             ctx.fillRect(-player.width/2, -player.height/2, player.width, player.height);
             ctx.restore();
+        }
+
+        // ── Pinedo sprite rendering ──────────────────────────────────────────
+        if (player.characterId === 'pinedo') {
+            hideStandardBody = true;
+            const imgs = pinedoImgs.current;
+            const state = player.pinedoState || 'idle';
+            const facingRight = player.facing === 'right';
+
+            // Choose the correct image
+            let img: HTMLImageElement | null = null;
+            let spriteW = 128; // logical sprite width for normal frames
+            let spriteH = 128;
+            let attackOffset = 0; // extra x pixels added to the right in attack sprites (160-128=32)
+
+            if (state === 'idle' || state === 'waiting') {
+                img = state === 'waiting' ? imgs['waiting'] : imgs['idle'];
+            } else if (state === 'run') {
+                img = imgs['run'];
+            } else if (state === 'attack1') {
+                img = imgs['attack1'];
+                spriteW = 160;
+                attackOffset = 32;
+            } else if (state === 'attack2') {
+                img = imgs['attack2'];
+                spriteW = 160;
+                attackOffset = 32;
+            } else if (state === 'attack3start') {
+                img = imgs['attack3s'];
+            } else if (state === 'attack3main') {
+                img = imgs['attack3m'];
+            }
+
+            if (img && img.complete && img.naturalWidth > 0) {
+                // Scale so sprite height = player.height + a bit for visual size
+                const drawH = player.height * (128 / 50) * 0.55; // ~56px tall rendered
+                const drawW = drawH * (spriteW / spriteH);
+
+                // Sprite faces LEFT by default.
+                // For normal (128px) sprites: anchor bottom-center to player collision box bottom-center
+                // Apply -8px vertical offset so bottom of sprite (which has ~8px of transparent/angled pixels) aligns with collision floor
+                const FOOT_OFFSET = 8;
+                const playerCenterX = player.x + player.width / 2;
+                const playerBottom  = player.y + player.height - FOOT_OFFSET;
+
+                // For attack sprites (160px wide), Pinedo is at same body position but sprite
+                // extends 32px to the RIGHT of her body (attack extends rightward when facing left).
+                // When facing RIGHT we flip, so the extension goes leftward.
+                // Anchor: right edge of Pinedo body area (not full sprite) = playerCenterX + normalBodyHalfW
+                const normalBodyHalfW = drawH * (128 / 128) / 2; // half-width of the 128px portion scaled
+                const attackExtendW   = drawH * (attackOffset / spriteH); // scaled width of the 32px extension
+
+                ctx.save();
+                if (facingRight) {
+                    // Flip horizontally around player center
+                    ctx.translate(playerCenterX, playerBottom - drawH);
+                    ctx.scale(-1, 1);
+                    ctx.translate(-drawW / 2, 0);
+                    if (attackOffset > 0) {
+                        // When facing right and flipped, extension now goes left (correct: attack is forward)
+                        // Shift so the body portion aligns with player center
+                        ctx.translate(attackExtendW, 0);
+                    }
+                } else {
+                    // Facing left — default orientation
+                    ctx.translate(playerCenterX - drawW / 2, playerBottom - drawH);
+                    if (attackOffset > 0) {
+                        // Extension goes right (attack forward when facing left) — no extra shift needed
+                        // But shift left by half-extension so body stays centered
+                        ctx.translate(-attackExtendW / 2, 0);
+                    }
+                }
+                ctx.drawImage(img, 0, 0, drawW, drawH);
+                ctx.restore();
+
+                // Attack3 radius indicator
+                if (state === 'attack3start' || state === 'attack3main') {
+                    const cx = player.pinedoAttack3Center?.x ?? (player.x + player.width / 2);
+                    const cy = player.pinedoAttack3Center?.y ?? (player.y + player.height / 2);
+                    ctx.strokeStyle = state === 'attack3main' ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 4]);
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 80, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.lineWidth = 1;
+                }
+            } else {
+                // Fallback: colored rect while images load
+                ctx.fillStyle = player.color;
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+            }
         }
 
         if (!hideStandardBody) {
@@ -1517,7 +1674,11 @@ export default function GameCanvas() {
                    onClick={() => socket?.emit('selectCharacter', char.id)}
                    className={`relative flex flex-col items-center justify-center bg-black/60 p-6 rounded-xl border-2 ${borderClass} ${opacityClass} hover:border-indigo-400 transition-all cursor-pointer`}
                  >
-                    <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
+                    {char.id === 'pinedo' ? (
+                      <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
+                    )}
                     <span className="font-bold tracking-tight text-lg mb-1">{char.name}</span>
                     <div className="h-4">
                        {isTaken && <span className={`text-[10px] uppercase tracking-widest ${isMe ? 'text-indigo-400' : 'text-red-400'}`}>{selectionText}</span>}
@@ -1616,7 +1777,11 @@ export default function GameCanvas() {
               <div className={`absolute inset-0 ${bgGlowClass} blur-xl rounded-2xl`}></div>
               <div className={`relative bg-black/60 border ${borderClass} rounded-2xl p-6 flex items-center gap-6`}>
                 <div className={`w-20 h-20 ${iconBgClass} rounded-xl border ${iconBorderClass} flex items-center justify-center overflow-hidden`}>
-                  <div className={`w-12 h-12 rounded-lg ${idx === 0 ? 'rotate-12' : '-rotate-12'}`} style={{ backgroundColor: p.color }}></div>
+                  {p.characterId === 'pinedo' ? (
+                    <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-14 h-14 object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : (
+                    <div className={`w-12 h-12 rounded-lg ${idx === 0 ? 'rotate-12' : '-rotate-12'}`} style={{ backgroundColor: p.color }}></div>
+                  )}
                 </div>
                 <div className="flex-1">
                   <div className="flex justify-between items-end mb-1">
