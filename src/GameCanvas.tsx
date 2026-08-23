@@ -1742,9 +1742,13 @@ export default function GameCanvas() {
               {mirageOverlay.map(m => {
                 const drawH = 62;
                 const drawW = drawH;
-                const bottom = m.y + 50 + 4;
-                const top = bottom - drawH;
-                const left = m.x + 25 - drawW / 2;
+                // Mirage hitbox is 12x40 — center sprite on hitbox
+                // hitbox offsetX from sprite left = 53*scale ≈ 21px in sprite space
+                // We anchor sprite so its center aligns with hitbox center
+                const hitboxCenterX = m.x + 6;  // m.x + width/2
+                const hitboxBottom  = m.y + 40;
+                const left = hitboxCenterX - drawW / 2;
+                const top  = hitboxBottom - drawH;
                 const src =
                   m.state === 'attack1' || m.state === 'attack2' ? '/Mirage/MirageAttack2.gif' :
                   m.state === 'attack3' ? '/Mirage/MirageAttack3.gif' :
@@ -1761,8 +1765,8 @@ export default function GameCanvas() {
                     {m.trail.map((t, i) => (
                       <img key={i} src="/Mirage/MirageMidFlight.png" alt="" style={{
                         position: 'absolute',
-                        left: t.x + 25 - drawW / 2,
-                        top: t.y + 50 + 4 - drawH,
+                        left: (t.x + 6) - drawW / 2,
+                        top:  (t.y + 40) - drawH,
                         width: drawW, height: drawH,
                         imageRendering: 'pixelated',
                         opacity: (i + 1) / (m.trail.length + 1) * 0.5,
