@@ -1799,17 +1799,17 @@ export default function GameCanvas() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,_#1a1a2e_0%,_#050508_70%)] opacity-50 pointer-events-none"></div>
       <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4f46e5 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
 
-      <header className="relative z-10 flex justify-between items-center px-12 py-8 shrink-0">
+      <header className="relative z-10 flex justify-between items-center px-4 sm:px-12 py-3 sm:py-8 shrink-0">
         <div className="flex flex-col">
-          <span className="text-[10px] uppercase tracking-[0.3em] text-indigo-400 font-bold">Multiplayer Session</span>
-          <h1 className="text-2xl font-black tracking-tighter italic">ROSE FIGHTERS <span className="text-indigo-500">α</span></h1>
+          <span className="hidden sm:block text-[10px] uppercase tracking-[0.3em] text-indigo-400 font-bold">Multiplayer Session</span>
+          <h1 className="text-lg sm:text-2xl font-black tracking-tighter italic">ROSE FIGHTERS <span className="text-indigo-500">α</span></h1>
         </div>
-        <div className="flex items-center gap-6">
-          <div className="flex flex-col items-end">
+        <div className="flex items-center gap-3 sm:gap-6">
+          <div className="hidden sm:flex flex-col items-end">
             <span className="text-[10px] uppercase tracking-widest text-gray-500">Controls</span>
             <span className="text-sm font-mono font-bold text-white">WASD Move, Mouse to Attack</span>
           </div>
-          <div className="w-12 h-12 rounded-full border-2 border-indigo-500 flex items-center justify-center bg-indigo-500/10">
+          <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-full border-2 border-indigo-500 flex items-center justify-center bg-indigo-500/10">
             <div className={`w-2 h-2 rounded-full ${myId ? 'bg-indigo-400 animate-pulse' : 'bg-amber-500 animate-pulse'}`}></div>
           </div>
         </div>
@@ -1819,16 +1819,13 @@ export default function GameCanvas() {
         <div className="absolute top-1/4 left-1/4 w-48 h-2 bg-indigo-500/30 rounded-full blur-sm pointer-events-none"></div>
         <div className="absolute top-1/4 right-1/4 w-48 h-2 bg-purple-500/30 rounded-full blur-sm pointer-events-none"></div>
         
-        <div className="relative z-10 shadow-[0_10px_40px_rgba(0,0,0,0.8)] rounded-xl border-t border-white/10 overflow-hidden bg-black/60"
-          style={isMobile ? { width: '100vw', maxWidth: '100vw' } : {}}>
+        <div className="relative z-10 shadow-[0_10px_40px_rgba(0,0,0,0.8)] rounded-none sm:rounded-xl border-t border-white/10 overflow-hidden bg-black/60 w-full sm:w-auto">
             <canvas
               ref={canvasRef}
               width={1024}
               height={600}
-              className="block"
-              style={isMobile
-                ? { imageRendering: 'pixelated', width: '100vw', height: 'auto' }
-                : { imageRendering: 'pixelated' }}
+              className="block w-full h-auto sm:w-[1024px] sm:h-[600px]"
+              style={{ imageRendering: 'pixelated' }}
               onContextMenu={(e) => e.preventDefault()}
             />
             {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
@@ -1943,114 +1940,107 @@ export default function GameCanvas() {
         </div>
       </main>
 
-      <footer className="relative z-10 grid grid-cols-2 xl:grid-cols-4 gap-4 px-6 pb-6 shrink-0">
-        {playersList.slice(0, 4).map((p, idx) => {
-          const isMe = p.id === myId;
-          const name = isMe ? `P${idx + 1} • YOU` : `P${idx + 1} • P-${p.id.substring(0, 4).toUpperCase()}`;
-          const colors = [
-            { bg: 'bg-indigo-600/20', border: 'border-indigo-500/50', iconBg: 'bg-indigo-900/50', iconBorder: 'border-indigo-400/30', text: 'text-indigo-400', muted: 'text-indigo-300' },
-            { bg: 'bg-purple-600/20', border: 'border-purple-500/50', iconBg: 'bg-purple-900/50', iconBorder: 'border-purple-400/30', text: 'text-purple-400', muted: 'text-purple-300' },
-            { bg: 'bg-rose-600/20',   border: 'border-rose-500/50',   iconBg: 'bg-rose-900/50',   iconBorder: 'border-rose-400/30',   text: 'text-rose-400',   muted: 'text-rose-300' },
-            { bg: 'bg-amber-600/20',  border: 'border-amber-500/50',  iconBg: 'bg-amber-900/50',  iconBorder: 'border-amber-400/30',  text: 'text-amber-400',  muted: 'text-amber-300' },
-          ];
-          const c = colors[idx] ?? colors[0];
-          
-          return (
-            <div key={p.id} className="relative group">
-              <div className={`absolute inset-0 ${c.bg} blur-xl rounded-2xl`}></div>
-              <div className={`relative bg-black/60 border ${c.border} rounded-2xl p-4 flex items-center gap-4`}>
-                <div className={`w-14 h-14 ${c.iconBg} rounded-xl border ${c.iconBorder} flex items-center justify-center overflow-hidden shrink-0`}>
-                  {p.characterId === 'pinedo' ? (
-                    <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                  ) : p.characterId === 'mirage' ? (
-                    <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                  ) : (
-                    <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-end mb-1">
-                    <div className="flex flex-col">
-                      <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>{name}</span>
-                      <span className="text-xs font-bold uppercase tracking-tighter text-white truncate">
-                        {ROSTER.find(r => r.id === p.characterId)?.name || 'Unknown'}
-                      </span>
-                    </div>
-                    <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Kills: {p.score}</span>
+      <footer className="relative z-10 shrink-0">
+        {/* Desktop: full cards */}
+        <div className="hidden sm:grid sm:grid-cols-2 xl:grid-cols-4 gap-4 px-6 pb-6">
+          {playersList.slice(0, 4).map((p, idx) => {
+            const isMe = p.id === myId;
+            const name = isMe ? `P${idx + 1} • YOU` : `P${idx + 1} • P-${p.id.substring(0, 4).toUpperCase()}`;
+            const colors = [
+              { bg: 'bg-indigo-600/20', border: 'border-indigo-500/50', iconBg: 'bg-indigo-900/50', iconBorder: 'border-indigo-400/30', text: 'text-indigo-400', muted: 'text-indigo-300' },
+              { bg: 'bg-purple-600/20', border: 'border-purple-500/50', iconBg: 'bg-purple-900/50', iconBorder: 'border-purple-400/30', text: 'text-purple-400', muted: 'text-purple-300' },
+              { bg: 'bg-rose-600/20',   border: 'border-rose-500/50',   iconBg: 'bg-rose-900/50',   iconBorder: 'border-rose-400/30',   text: 'text-rose-400',   muted: 'text-rose-300' },
+              { bg: 'bg-amber-600/20',  border: 'border-amber-500/50',  iconBg: 'bg-amber-900/50',  iconBorder: 'border-amber-400/30',  text: 'text-amber-400',  muted: 'text-amber-300' },
+            ];
+            const c = colors[idx] ?? colors[0];
+            return (
+              <div key={p.id} className="relative group">
+                <div className={`absolute inset-0 ${c.bg} blur-xl rounded-2xl`}></div>
+                <div className={`relative bg-black/60 border ${c.border} rounded-2xl p-4 flex items-center gap-4`}>
+                  <div className={`w-14 h-14 ${c.iconBg} rounded-xl border ${c.iconBorder} flex items-center justify-center overflow-hidden shrink-0`}>
+                    {p.characterId === 'pinedo' ? (
+                      <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : p.characterId === 'mirage' ? (
+                      <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : (
+                      <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
+                    )}
                   </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-black italic tracking-tighter text-white">{p.health}</span>
-                    <span className={`text-lg font-bold ${c.text}`}>HP</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-end mb-1">
+                      <div className="flex flex-col">
+                        <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>{name}</span>
+                        <span className="text-xs font-bold uppercase tracking-tighter text-white truncate">
+                          {ROSTER.find(r => r.id === p.characterId)?.name || 'Unknown'}
+                        </span>
+                      </div>
+                      <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Kills: {p.score}</span>
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-black italic tracking-tighter text-white">{p.health}</span>
+                      <span className={`text-lg font-bold ${c.text}`}>HP</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+        {/* Mobile: compact HP strip */}
+        <div className="flex sm:hidden gap-1 px-2 pb-1">
+          {playersList.slice(0, 4).map((p, idx) => {
+            const barColors = ['bg-indigo-500','bg-purple-500','bg-rose-500','bg-amber-500'];
+            const isMe = p.id === myId;
+            const hpPct = Math.max(0, p.health / p.maxHealth);
+            return (
+              <div key={p.id} className="flex-1 bg-black/70 border border-white/10 rounded-lg p-1.5">
+                <div className="flex items-center gap-1 mb-1">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${barColors[idx]}`}></div>
+                  <span className="text-[8px] text-white font-bold truncate">{isMe ? 'YOU' : `P${idx+1}`}</span>
+                  <span className="text-[8px] text-gray-400 ml-auto">{p.score}K</span>
+                </div>
+                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div className={`h-full ${barColors[idx]} rounded-full`} style={{ width: `${hpPct * 100}%` }}></div>
+                </div>
+                <div className="text-[10px] font-black text-white mt-0.5">{p.health}<span className="text-[8px] font-normal text-gray-400">hp</span></div>
+              </div>
+            );
+          })}
+        </div>
       </footer>
 
-      {/* ── Mobile Controls ─────────────────────────────────────────────── */}
-      {isMobile && appState === 'PLAYING' && (
-        <div className="relative z-30 flex flex-col gap-2 px-4 pb-4 shrink-0 select-none">
-          {/* D-pad row */}
-          <div className="flex justify-between items-end">
-            {/* Left side: movement */}
-            <div className="flex items-center gap-2">
-              <button
-                className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
-                onTouchStart={() => { mobileKeysRef.current['ArrowLeft'] = true; }}
-                onTouchEnd={() => { mobileKeysRef.current['ArrowLeft'] = false; }}
-              >◀</button>
-              <div className="flex flex-col gap-2">
-                <button
-                  className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
-                  onTouchStart={() => { mobileKeysRef.current['Space'] = true; }}
-                  onTouchEnd={() => { mobileKeysRef.current['Space'] = false; }}
-                >▲</button>
-                <button
-                  className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
-                  onTouchStart={() => { mobileKeysRef.current['ArrowDown'] = true; }}
-                  onTouchEnd={() => { mobileKeysRef.current['ArrowDown'] = false; }}
-                >▼</button>
-              </div>
-              <button
-                className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
-                onTouchStart={() => { mobileKeysRef.current['ArrowRight'] = true; }}
-                onTouchEnd={() => { mobileKeysRef.current['ArrowRight'] = false; }}
-              >▶</button>
+      {/* Mobile Controls */}
+      {isMobile && (
+        <div className="relative z-30 bg-black/80 border-t border-white/10 px-3 py-2 shrink-0 select-none">
+          <div className="flex justify-between items-center gap-2">
+            <div className="grid grid-cols-3 gap-1">
+              <div></div>
+              <button className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 active:bg-white/30 flex items-center justify-center text-lg font-bold"
+                onTouchStart={e=>{e.preventDefault();mobileKeysRef.current['Space']=true;}} onTouchEnd={()=>{mobileKeysRef.current['Space']=false;}}>↑</button>
+              <div></div>
+              <button className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 active:bg-white/30 flex items-center justify-center text-lg font-bold"
+                onTouchStart={e=>{e.preventDefault();mobileKeysRef.current['ArrowLeft']=true;}} onTouchEnd={()=>{mobileKeysRef.current['ArrowLeft']=false;}}>←</button>
+              <button className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 active:bg-white/30 flex items-center justify-center text-lg font-bold"
+                onTouchStart={e=>{e.preventDefault();mobileKeysRef.current['ArrowDown']=true;}} onTouchEnd={()=>{mobileKeysRef.current['ArrowDown']=false;}}>↓</button>
+              <button className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 active:bg-white/30 flex items-center justify-center text-lg font-bold"
+                onTouchStart={e=>{e.preventDefault();mobileKeysRef.current['ArrowRight']=true;}} onTouchEnd={()=>{mobileKeysRef.current['ArrowRight']=false;}}>→</button>
             </div>
-            {/* Right side: abilities */}
-            <div className="flex flex-col gap-2 items-end">
-              <div className="flex gap-2">
-                <button
-                  className="w-16 h-16 rounded-2xl bg-indigo-600/60 border border-indigo-400/40 active:bg-indigo-400/80 flex items-center justify-center font-black text-white text-sm"
-                  onTouchStart={() => { mobileMouseRef.current[2] = true; }}
-                  onTouchEnd={() => { mobileMouseRef.current[2] = false; }}
-                >AB3</button>
-                <button
-                  className="w-16 h-16 rounded-2xl bg-purple-600/60 border border-purple-400/40 active:bg-purple-400/80 flex items-center justify-center font-black text-white text-sm"
-                  onTouchStart={() => { mobileMouseRef.current[1] = true; }}
-                  onTouchEnd={() => { mobileMouseRef.current[1] = false; }}
-                >AB2</button>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="w-16 h-16 rounded-2xl bg-violet-600/60 border border-violet-400/40 active:bg-violet-400/80 flex items-center justify-center font-black text-white text-sm"
-                  onTouchStart={e => { e.preventDefault(); mobileMouseRef.current[0] = true; }}
-                  onTouchEnd={() => { mobileMouseRef.current[0] = false; }}
-                >ATK</button>
-                <button
-                  className="w-20 h-16 rounded-2xl bg-blue-600/60 border border-blue-400/40 active:bg-blue-400/80 flex items-center justify-center font-black text-white text-sm"
-                  onTouchStart={() => { mobileMouseRef.current[1] = true; }}
-                  onTouchEnd={() => { mobileMouseRef.current[1] = false; }}
-                >AB2</button>
-              </div>
+            <div className={`w-2 h-2 rounded-full ${myId ? 'bg-green-400' : 'bg-amber-400'} animate-pulse`}></div>
+            <div className="grid grid-cols-2 gap-1">
+              <button className="w-14 h-12 rounded-xl bg-violet-600/70 border border-violet-400/40 active:bg-violet-400 flex items-center justify-center font-black text-white text-xs"
+                onTouchStart={e=>{e.preventDefault();mobileMouseRef.current[0]=true;}} onTouchEnd={()=>{mobileMouseRef.current[0]=false;}}>AB1</button>
+              <button className="w-14 h-12 rounded-xl bg-purple-600/70 border border-purple-400/40 active:bg-purple-400 flex items-center justify-center font-black text-white text-xs"
+                onTouchStart={e=>{e.preventDefault();mobileMouseRef.current[1]=true;}} onTouchEnd={()=>{mobileMouseRef.current[1]=false;}}>AB2</button>
+              <button className="w-14 h-12 rounded-xl bg-indigo-600/70 border border-indigo-400/40 active:bg-indigo-400 flex items-center justify-center font-black text-white text-xs"
+                onTouchStart={e=>{e.preventDefault();mobileMouseRef.current[2]=true;}} onTouchEnd={()=>{mobileMouseRef.current[2]=false;}}>AB3</button>
+              <button className="w-14 h-12 rounded-xl bg-white/10 border border-white/20 active:bg-white/30 flex items-center justify-center font-black text-white text-xs"
+                onTouchStart={e=>{e.preventDefault();mobileKeysRef.current['Space']=true;}} onTouchEnd={()=>{mobileKeysRef.current['Space']=false;}}>JUMP</button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-white/5 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 pointer-events-none z-20">
+      <div className="hidden sm:flex absolute bottom-4 left-1/2 -translate-x-1/2 items-center gap-4 bg-white/5 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 pointer-events-none z-20">
         <span className="text-[9px] uppercase tracking-widest text-gray-400">Server Status:</span>
         <span className={`text-[9px] font-bold uppercase tracking-widest ${myId ? 'text-green-400' : 'text-amber-400'}`}>
           {myId ? 'Stable' : 'Connecting'}
