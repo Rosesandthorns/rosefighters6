@@ -328,9 +328,19 @@ setInterval(() => {
             
             if (highestScore - secondHighestScore >= 15) {
                 // Winner found
-                lobby.gameState = 'ENDED';
+                lobby.gameState = 'LOBBY';
                 lobby.matchEndTime = Date.now();
+                lobby.matchStartTime = undefined;
+                // Clear players from the game and reset lobby players
+                for (const playerId of Object.keys(players)) {
+                    delete players[playerId];
+                }
+                for (const playerId of Object.keys(lobby.players)) {
+                    lobby.players[playerId].isReady = false;
+                    lobby.players[playerId].characterId = null;
+                }
                 io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'kill_streak_lead' });
+                io.to(lobby.id).emit('lobbyUpdate', lobby);
                 io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
                     id: lobby.id,
                     name: lobby.name,
@@ -352,9 +362,19 @@ setInterval(() => {
             const playerScores = Object.values(players).map(p => ({ id: p.id, score: p.score }));
             if (playerScores.length > 0) {
                 const sortedScores = playerScores.sort((a, b) => b.score - a.score);
-                lobby.gameState = 'ENDED';
+                lobby.gameState = 'LOBBY';
                 lobby.matchEndTime = Date.now();
+                lobby.matchStartTime = undefined;
+                // Clear players from the game and reset lobby players
+                for (const playerId of Object.keys(players)) {
+                    delete players[playerId];
+                }
+                for (const playerId of Object.keys(lobby.players)) {
+                    lobby.players[playerId].isReady = false;
+                    lobby.players[playerId].characterId = null;
+                }
                 io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'time_limit' });
+                io.to(lobby.id).emit('lobbyUpdate', lobby);
                 io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
                     id: lobby.id,
                     name: lobby.name,
@@ -875,6 +895,29 @@ function getDefaultSettings(gameMode: GameMode): MatchSettings {
   }
 }
 
+// Periodic cleanup of empty lobbies (every 30 seconds)
+setInterval(() => {
+  const now = Date.now();
+  for (const [lobbyId, lobby] of Object.entries(lobbies)) {
+    const playerCount = Object.keys(lobby.players).length;
+    const age = now - lobby.createdAt;
+    
+    // Delete empty lobbies older than 5 minutes
+    if (playerCount === 0 && age > 300000) {
+      delete lobbies[lobbyId];
+      io.emit('lobbyClosed', { lobbyId: lobby.id });
+      io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+        id: lobby.id,
+        name: lobby.name,
+        isPrivate: lobby.isPrivate,
+        gameMode: lobby.gameMode,
+        playerCount: Object.keys(lobby.players).length,
+        gameState: lobby.gameState
+      })));
+    }
+  }
+}, 30000);
+
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
@@ -1014,15 +1057,27 @@ io.on('connection', (socket) => {
       delete lobby.players[socket.id];
       delete playerLobbyMap[socket.id];
       
+      // Check if lobby is now empty
+      if (Object.keys(lobby.players).length === 0) {
+        delete lobbies[lobby.id];
+        io.emit('lobbyClosed', { lobbyId: lobby.id });
+        io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+          id: lobby.id,
+          name: lobby.name,
+          isPrivate: lobby.isPrivate,
+          gameMode: lobby.gameMode,
+          playerCount: Object.keys(lobby.players).length,
+          gameState: lobby.gameState
+        })));
+        return;
+      }
+      
+      // Transfer admin if admin left
       if (lobby.adminId === socket.id) {
         const remainingPlayers = Object.keys(lobby.players);
         if (remainingPlayers.length > 0) {
           lobby.adminId = remainingPlayers[0];
           io.to(lobby.id).emit('adminChanged', { newAdminId: lobby.adminId });
-        } else {
-          delete lobbies[lobby.id];
-          io.emit('lobbyClosed', { lobbyId: lobby.id });
-          return;
         }
       }
       
@@ -1536,20 +1591,14 @@ io.on('connection', (socket) => {
               // Set active effect on player for client rendering
               player.activeEffects = player.activeEffects || {};
               player.activeEffects['cocoRage'] = Date.now() + 20000;
-              // Affect nearby players only at start - no speed boost, just effect Pip/Nexus floating
+              // Affect nearby players - apply rage cloud effect to everyone in range
               Object.values(players).forEach(p => {
-                  if (p.id === player.id) return;
                   const dist = Math.hypot(p.x - player.x, p.y - player.y);
                   if (dist < 200) {
-                      // For Pip and Nexus, temporarily disable floating ability
-                      if (p.characterId === 'pip' || p.characterId === 'nexus') {
-                          p.activeEffects = p.activeEffects || {};
-                          p.activeEffects['cocoRageHit'] = Date.now() + 20000;
-                          io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: true });
-                          setTimeout(() => { if (players[p.id]) { delete players[p.id].activeEffects?.['cocoRageHit']; } }, 20000);
-                      } else {
-                          io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: false });
-                      }
+                      p.activeEffects = p.activeEffects || {};
+                      p.activeEffects['cocoRageHit'] = Date.now() + 20000;
+                      io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: p.characterId === 'pip' || p.characterId === 'nexus' });
+                      setTimeout(() => { if (players[p.id]) { delete players[p.id].activeEffects?.['cocoRageHit']; } }, 20000);
                   }
               });
               player.cocoState = 'attack13';

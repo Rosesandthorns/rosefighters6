@@ -337,6 +337,7 @@ export default function GameCanvas() {
     newSocket.on('lobbyJoined', (data: { lobby: Lobby, playerId: string }) => {
       setCurrentLobby(data.lobby);
       setPlayerId(data.playerId);
+      setSelectedGameMode(data.lobby.gameMode);
       setScreen('lobby');
     });
 
@@ -381,9 +382,7 @@ export default function GameCanvas() {
 
     newSocket.on('gameEnd', (data: { winnerId: string, reason: string }) => {
       alert(`Game Over! Winner: ${data.winnerId} (${data.reason})`);
-      setScreen('main_menu');
-      setCurrentLobby(null);
-      setPlayerId('');
+      setScreen('lobby');
     });
 
     newSocket.on('applyKnockback', (data: { vx: number, vy: number, stunFrames: number }) => {
