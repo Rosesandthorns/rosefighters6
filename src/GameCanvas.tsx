@@ -32,6 +32,8 @@ interface Player {
   pinedoAttack3Center?: { x: number; y: number };
   mirageState?: 'idle' | 'movestart' | 'midflight' | 'movestop' | 'attack1' | 'attack2' | 'attack3' | 'attack3reverse';
   mirageMoving?: boolean;
+  cocoState?: 'idle' | 'walk' | 'attack13' | 'attack2';
+  cocoRageActive?: boolean;
 }
 
 interface Particle {
@@ -108,6 +110,7 @@ const ROSTER = [
   { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, category: 'Mirage Park' },
   { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, category: 'Mirage Park' },
   { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, category: 'Mirage Park' },
+  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, category: 'Mirage Park' },
   { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, category: 'Rose Valley' },
   { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, category: 'Rose Valley' },
   { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, category: 'Project Defence' },
@@ -169,6 +172,7 @@ export default function GameCanvas() {
   const pinedoImgs = useRef<Record<string, HTMLImageElement>>({});
   // Mirage sprite images — loaded once
   const mirageImgs = useRef<Record<string, HTMLImageElement>>({});
+  const cocoImgs = useRef<Record<string, HTMLImageElement>>({});
   useEffect(() => {
     const pAssets: Record<string, string> = {
       idle:       '/Pinedo/PinedoIdlegif.gif',
@@ -196,6 +200,17 @@ export default function GameCanvas() {
     Object.entries(mAssets).forEach(([key, src]) => {
       const img = new Image(); img.src = src;
       mirageImgs.current[key] = img;
+    });
+    const cocoAssets: Record<string, string> = {
+      idle:    '/Coco/CocoIdle.gif',
+      walk:    '/Coco/CocoWalk.gif',
+      attack13:'/Coco/CocoAttack13.gif',
+      attack2: '/Coco/CocoAttack2.gif',
+      icon:    '/Coco/CocoIcon.png',
+    };
+    Object.entries(cocoAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
+      cocoImgs.current[key] = img;
     });
   }, []);
 
@@ -472,6 +487,15 @@ export default function GameCanvas() {
         }
         if (data.effect === 'mirageState' && (data as any).state) {
             p.mirageState = (data as any).state;
+        }
+        if (data.effect === 'cocoState' && (data as any).state) {
+            p.cocoState = (data as any).state;
+        }
+        if (data.effect === 'cocoRage') {
+            p.cocoRageActive = true;
+        }
+        if (data.effect === 'cocoRageHit') {
+            p.cocoRageActive = true;
         }
     });
 
@@ -781,6 +805,13 @@ export default function GameCanvas() {
                 const attackStates = ['attack1','attack2','waiting','attack3start','attack3main'];
                 if (!attackStates.includes(myPlayer.pinedoState || '')) {
                   myPlayer.pinedoState = moveTarget !== 0 ? 'run' : 'idle';
+                }
+              }
+              // Update Coco walk/idle state
+              if (myPlayer.characterId === 'coco') {
+                const cAttack = ['attack13','attack2'];
+                if (!cAttack.includes(myPlayer.cocoState || '')) {
+                  myPlayer.cocoState = moveTarget !== 0 ? 'walk' : 'idle';
                 }
               }
               // Update Mirage movement state locally
@@ -1434,6 +1465,15 @@ export default function GameCanvas() {
               ctx.lineWidth = 2;
               ctx.stroke();
               ctx.lineWidth = 1;
+          } else if (proj.type === 'chocolate') {
+              ctx.save();
+              ctx.translate(proj.x, proj.y);
+              ctx.rotate(Date.now() / 80);
+              ctx.fillStyle = '#7c2d12';
+              ctx.fillRect(-7, -5, 14, 10);
+              ctx.fillStyle = '#92400e';
+              ctx.fillRect(-5, -3, 10, 6);
+              ctx.restore();
           }
       });
 
@@ -1472,7 +1512,7 @@ export default function GameCanvas() {
         }
 
         // ── Pinedo: hidden from canvas — rendered as DOM overlay beneath ──────
-        if (player.characterId === 'pinedo' || player.characterId === 'mirage') {
+        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco') {
             hideStandardBody = true;
         }
 
@@ -1748,6 +1788,8 @@ export default function GameCanvas() {
                       <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : char.id === 'mirage' ? (
                       <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : char.id === 'coco' ? (
+                      <img src="/Coco/CocoIcon.png" alt="Coco" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
                     )}
@@ -1859,7 +1901,6 @@ export default function GameCanvas() {
                   m.state === 'movestop' ? '/Mirage/MirageMoveStart.gif' :
                   '/Mirage/MirageIdle.gif';
                 const flip = m.facing === 'right';
-                const isReverse = m.state === 'attack3reverse' || m.state === 'movestop';
                 return (
                   <div key={m.id + '-mirage'} style={{ position: 'absolute', left: 0, top: 0, width: 1024, height: 600, pointerEvents: 'none' }}>
                     {/* Silhouette trail — 3 fading copies when moving */}
@@ -1881,7 +1922,7 @@ export default function GameCanvas() {
                       position: 'absolute',
                       left, top, width: drawW, height: drawH,
                       imageRendering: 'pixelated',
-                      transform: `${flip ? 'scaleX(-1)' : ''} ${isReverse ? 'scaleY(-1)' : ''}`.trim() || 'none',
+                      transform: flip ? 'scaleX(-1)' : 'none',
                       transformOrigin: 'center center',
                     }} />
                   </div>
@@ -1936,6 +1977,50 @@ export default function GameCanvas() {
                   />
                 );
               })}
+              {playersList.filter(p => p.characterId === 'coco').map(p => {
+                const state = p.cocoState || 'idle';
+                const src =
+                  state === 'walk'     ? '/Coco/CocoWalk.gif' :
+                  state === 'attack13' ? '/Coco/CocoAttack13.gif' :
+                  state === 'attack2'  ? '/Coco/CocoAttack2.gif' :
+                                        '/Coco/CocoIdle.gif';
+
+                // Hitbox is from 38,115 to 78,50 on the image (assuming top left is 0,0)
+                // So hitbox width = 78-38 = 40, height = 115-50 = 65
+                // We need to position the sprite so the hitbox aligns with the player position
+                const originalSpriteHeight = 115;
+                const originalSpriteWidth = 115; // Assuming square based on the coordinate range
+                const drawH = 80; // Scale for visibility
+                const spriteScale = drawH / originalSpriteHeight;
+                const drawW = originalSpriteWidth * spriteScale;
+                
+                // The hitbox on the sprite is at x=38, y=50 (top-left of hitbox)
+                // We need to offset the sprite so that this hitbox aligns with player.x, player.y
+                const hitboxXOffset = 38 * spriteScale;
+                const hitboxYOffset = 50 * spriteScale;
+                
+                const left = p.x - hitboxXOffset;
+                const top = p.y - hitboxYOffset;
+
+                return (
+                  <img
+                    key={p.id + '-coco-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width: drawW,
+                      height: drawH,
+                      imageRendering: 'pixelated',
+                      // Sprites face LEFT by default — flip for right-facing
+                      transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
+                      transformOrigin: 'center center',
+                    }}
+                  />
+                );
+              })}
             </div>
         </div>
       </main>
@@ -1962,6 +2047,8 @@ export default function GameCanvas() {
                       <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : p.characterId === 'mirage' ? (
                       <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : p.characterId === 'coco' ? (
+                      <img src="/Coco/CocoIcon.png" alt="Coco" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
                     )}

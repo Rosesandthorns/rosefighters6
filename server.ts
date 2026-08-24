@@ -80,6 +80,10 @@ interface Player {
   mirageMoving?: boolean;
   mirageAttack3TeleportX?: number;
   mirageAttack3TeleportY?: number;
+  cocoState?: 'idle' | 'walk' | 'attack13' | 'attack2';
+  cocoRageActive?: boolean;
+  cocoRageEnd?: number;
+  cocoFountainId?: string;
   lastHitBy?: { id: string, time: number };
   brambleId?: string;
   brambleImmune?: number;
@@ -95,6 +99,7 @@ const ROSTER = [
   { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park' },
   { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park' },
   { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
+  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park' },
   { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
@@ -113,7 +118,7 @@ interface LobbyPlayer {
 
 interface Projectile {
     id: string;
-    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap';
+    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate';
     x: number;
     y: number;
     startX?: number;
@@ -352,6 +357,14 @@ setInterval(() => {
         
         // Fire wall damage
         for (const wall of Object.values(walls)) {
+            if (wall.type === 'cocoFountain' && wall.ownerId !== player.id) {
+                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                    if (now % 1000 < 35) applyDamage(player, 10, wall.ownerId);
+                    player.velocity = player.velocity || { x: 0, y: 0 };
+                    player.velocity.y = -15;
+                }
+            }
             if (wall.type === 'fire' && wall.ownerId !== player.id && player.characterId !== 'wisp') {
                 if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
                     player.y < wall.y + wall.height && player.y + player.height > wall.y) {
@@ -458,8 +471,20 @@ setInterval(() => {
 
     // Process Projectiles
     for (const [id, proj] of Object.entries(projectiles)) {
-        if (proj.type === 'boomerang') {
-            if (proj.life > 30) {
+        if (proj.type === 'chocolate') {
+            // Boomerang-style: return to origin point after half life
+            if (proj.life > 45) {
+                // outbound — keep velocity
+            } else {
+                const tx = proj.startX ?? proj.x;
+                const ty = proj.startY ?? proj.y;
+                const dx = tx - proj.x;
+                const dy = ty - proj.y;
+                const len = Math.hypot(dx, dy);
+                if (len < 10) { proj.life = -1; } // absorbed
+                else { proj.vx = (dx / len) * 10; proj.vy = (dy / len) * 10; }
+            }
+        } else if (proj.type === 'boomerang') {            if (proj.life > 30) {
                 proj.vx -= (proj.vx > 0 ? 0.5 : -0.5);
             } else {
                 const owner = players[proj.ownerId];
@@ -554,7 +579,7 @@ setInterval(() => {
                             io.to(player.id).emit('screenEffect', { type: 'paintCover', duration: 4000 });
                         }
                     }
-                    if (proj.type !== 'boomerang') {
+                    if (proj.type !== 'boomerang' && proj.type !== 'chocolate') {
                         delete projectiles[id];
                         hit = true;
                         break;
@@ -568,7 +593,7 @@ setInterval(() => {
                 if (['fire', 'bramble', 'bloodCloud'].includes(wall.type || '')) continue;
                 if (proj.x > wall.x && proj.x < wall.x + wall.width &&
                     proj.y > wall.y && proj.y < wall.y + wall.height) {
-                    if (proj.type !== 'boomerang') {
+                    if (proj.type !== 'boomerang' && proj.type !== 'chocolate') {
                         delete projectiles[id];
                         hit = true;
                         break;
@@ -764,8 +789,8 @@ io.on('connection', (socket) => {
             characterId: p.characterId,
             x: Math.random() * 400 + 312,
             y: p.characterId === 'wax' ? 350 : 50,
-            width: p.characterId === 'wax' ? 100 : p.characterId === 'mirage' ? 12 : 50,
-            height: p.characterId === 'wax' ? 120 : p.characterId === 'mirage' ? 40 : 50,
+            width: p.characterId === 'wax' ? 100 : p.characterId === 'mirage' ? 12 : p.characterId === 'coco' ? 40 : 50,
+            height: p.characterId === 'wax' ? 120 : p.characterId === 'mirage' ? 40 : p.characterId === 'coco' ? 65 : 50,
             color: char ? char.color : '#fff',
             health: maxHp, maxHealth: maxHp,
             facing: 'right', velocity: {x: 0, y: 0},
@@ -795,8 +820,8 @@ io.on('connection', (socket) => {
             characterId: lp.characterId || 'void_knight',
             x: 412 + (idx * 60) - (activeLobby.length * 30),
             y: lp.characterId === 'wax' ? 350 : 50,
-            width: lp.characterId === 'wax' ? 100 : lp.characterId === 'mirage' ? 12 : 50,
-            height: lp.characterId === 'wax' ? 120 : lp.characterId === 'mirage' ? 40 : 50,
+            width: lp.characterId === 'wax' ? 100 : lp.characterId === 'mirage' ? 12 : lp.characterId === 'coco' ? 40 : 50,
+            height: lp.characterId === 'wax' ? 120 : lp.characterId === 'mirage' ? 40 : lp.characterId === 'coco' ? 65 : 50,
             color: char ? char.color : '#fff',
             health: maxHp,
             maxHealth: maxHp,
@@ -1112,6 +1137,60 @@ io.on('connection', (socket) => {
               player.healTimer = Date.now() + 5000;
               player.healLastHit = Date.now();
               io.emit('playerEffect', { id: player.id, effect: 'healStart' });
+          }
+      } else if (player.characterId === 'coco') {
+          if (data.ability === 1) {
+              // 4 chocolate pieces — 2 left, 2 right — boomerang back to origin
+              const cx = player.x + player.width / 2;
+              const cy = player.y + player.height / 2;
+              const speeds = [8, 14];
+              [-1, 1].forEach(dir => {
+                  speeds.forEach(spd => {
+                      const pid = 'proj_' + entityIdCounter++;
+                      projectiles[pid] = {
+                          id: pid, type: 'chocolate',
+                          x: cx, y: cy, startX: cx, startY: cy,
+                          vx: dir * spd, vy: 0,
+                          ownerId: player.id, damage: 15, life: 90
+                      };
+                  });
+              });
+              player.cocoState = 'attack13';
+              io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack13' });
+              setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 220);
+          } else if (data.ability === 2) {
+              // Cocoa Fountain — wall that spans full map height
+              const wid = 'wall_' + entityIdCounter++;
+              const fx = player.x + player.width / 2 - 15;
+              walls[wid] = { id: wid, x: fx, y: -600, width: 30, height: 1200, expires: Date.now() + 4000, type: 'cocoFountain', ownerId: player.id };
+              player.cocoFountainId = wid;
+              player.cocoState = 'attack2';
+              io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack2' });
+              setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 800);
+          } else if (data.ability === 3) {
+              // Lose 20 hp or go to 1 hp, whichever is less damage
+              const hpLost = Math.min(20, player.health - 1);
+              if (hpLost > 0) player.health -= hpLost;
+              io.emit('playerHealthChanged', { id: player.id, health: player.health });
+              // Apply rage cloud — 8x speed, 20s
+              player.cocoRageActive = true;
+              player.cocoRageEnd = Date.now() + 20000;
+              player.speedMult = 0.8 * 8;
+              io.emit('playerEffect', { id: player.id, effect: 'cocoRage', duration: 20000 });
+              // Affect nearby players too
+              Object.values(players).forEach(p => {
+                  if (p.id === player.id) return;
+                  const dist = Math.hypot(p.x - player.x, p.y - player.y);
+                  if (dist < 200) {
+                      p.speedMult = (p.characterId === 'pip' || p.characterId === 'nexus') ? (p.speedMult || 1) * 8 : (p.speedMult || 1) * 8;
+                      io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: p.characterId === 'pip' || p.characterId === 'nexus' });
+                      setTimeout(() => { if (players[p.id]) { const char = ROSTER.find(c => c.id === p.characterId); players[p.id].speedMult = char ? char.speedMult : 1; } }, 20000);
+                  }
+              });
+              player.cocoState = 'attack13';
+              io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack13' });
+              setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 220);
+              setTimeout(() => { if (players[player.id]) { players[player.id].cocoRageActive = false; const char = ROSTER.find(c => c.id === 'coco'); players[player.id].speedMult = char ? char.speedMult : 0.8; } }, 20000);
           }
       } else if (player.characterId === 'pinedo') {
           if (data.ability === 1) {
