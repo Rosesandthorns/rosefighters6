@@ -493,9 +493,13 @@ export default function GameCanvas() {
         }
         if (data.effect === 'cocoRage') {
             p.cocoRageActive = true;
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['cocoRage'] = Date.now() + (data as any).duration || 20000;
         }
         if (data.effect === 'cocoRageHit') {
             p.cocoRageActive = true;
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['cocoRage'] = Date.now() + (data as any).duration || 20000;
         }
     });
 
@@ -989,7 +993,7 @@ export default function GameCanvas() {
 
       // Dynamic Wall horizontal collision
       for (const wall of (Object.values(entitiesRef.current.walls) as Wall[])) {
-          if (['fire', 'bramble', 'bloodCloud'].includes(wall.type || '')) continue;
+          if (['fire', 'bramble', 'bloodCloud', 'cocoFountain'].includes(wall.type || '')) continue;
           if (
               myPlayer.y + myPlayer.height > wall.y &&
               myPlayer.y < wall.y + wall.height
@@ -1338,6 +1342,24 @@ export default function GameCanvas() {
                   ctx.lineTo(wall.x + i + 10, wall.y);
                   ctx.fill();
               }
+          } else if (wall.type === 'cocoFountain') {
+              // Brown chocolate fountain - rising from ground
+              ctx.fillStyle = '#7c2d12'; // Dark chocolate brown
+              ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
+              // Add lighter chocolate drips for texture
+              ctx.fillStyle = '#92400e'; // Lighter chocolate
+              for(let i=0; i<wall.width; i+=8) {
+                  const dripHeight = 10 + Math.sin(Date.now()/150 + i) * 5;
+                  ctx.fillRect(wall.x + i, wall.y + wall.height - dripHeight, 4, dripHeight);
+              }
+              // Add bubbling effect at top
+              ctx.fillStyle = '#a16207'; // Golden chocolate
+              for(let i=0; i<wall.width; i+=12) {
+                  const bubbleY = wall.y + Math.sin(Date.now()/100 + i) * 3;
+                  ctx.beginPath();
+                  ctx.arc(wall.x + i + 6, bubbleY, 3, 0, Math.PI * 2);
+                  ctx.fill();
+              }
           } else {
               ctx.fillStyle = 'rgba(168, 85, 247, 0.6)';
               ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
@@ -1508,6 +1530,20 @@ export default function GameCanvas() {
             ctx.rotate(Date.now() / 50 * (player.facing === 'right' ? 1 : -1));
             ctx.fillStyle = player.color;
             ctx.fillRect(-player.width/2, -player.height/2, player.width, player.height);
+            ctx.restore();
+        }
+
+        // ── Coco Rage Cloud Effect ─────────────────────────────────────────────
+        if (player.activeEffects?.['cocoRage'] && player.activeEffects['cocoRage'] > Date.now()) {
+            ctx.save();
+            ctx.globalAlpha = 0.3 + 0.1 * Math.sin(Date.now() / 100);
+            ctx.fillStyle = '#92400e'; // Chocolate brown
+            ctx.beginPath();
+            ctx.arc(player.x + player.width/2, player.y + player.height/2, 80, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#78350f';
+            ctx.lineWidth = 3;
+            ctx.stroke();
             ctx.restore();
         }
 
@@ -1987,15 +2023,16 @@ export default function GameCanvas() {
 
                 // Hitbox is from 38,115 to 78,50 on the image (assuming top left is 0,0)
                 // So hitbox width = 78-38 = 40, height = 115-50 = 65
+                // The sprite coordinates indicate: hitbox top-left at (38,50), bottom-right at (78,115)
                 // We need to position the sprite so the hitbox aligns with the player position
                 const originalSpriteHeight = 115;
-                const originalSpriteWidth = 115; // Assuming square based on the coordinate range
-                const drawH = 80; // Scale for visibility
+                const originalSpriteWidth = 78; // Based on the rightmost coordinate
+                const drawH = 65; // Match hitbox height exactly
                 const spriteScale = drawH / originalSpriteHeight;
                 const drawW = originalSpriteWidth * spriteScale;
                 
-                // The hitbox on the sprite is at x=38, y=50 (top-left of hitbox)
-                // We need to offset the sprite so that this hitbox aligns with player.x, player.y
+                // The hitbox on the sprite starts at x=38, y=50
+                // We need to offset the sprite so that the hitbox aligns with player.x, player.y
                 const hitboxXOffset = 38 * spriteScale;
                 const hitboxYOffset = 50 * spriteScale;
                 

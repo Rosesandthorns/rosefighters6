@@ -1159,10 +1159,11 @@ io.on('connection', (socket) => {
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack13' });
               setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 220);
           } else if (data.ability === 2) {
-              // Cocoa Fountain — wall that spans full map height
+              // Cocoa Fountain — wall that rises from ground, spans vertical height
               const wid = 'wall_' + entityIdCounter++;
               const fx = player.x + player.width / 2 - 15;
-              walls[wid] = { id: wid, x: fx, y: -600, width: 30, height: 1200, expires: Date.now() + 4000, type: 'cocoFountain', ownerId: player.id };
+              // Start from ground level (y=500 is roughly ground level in this game) and extend upward
+              walls[wid] = { id: wid, x: fx, y: 0, width: 30, height: 600, expires: Date.now() + 4000, type: 'cocoFountain', ownerId: player.id };
               player.cocoFountainId = wid;
               player.cocoState = 'attack2';
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack2' });
@@ -1177,6 +1178,9 @@ io.on('connection', (socket) => {
               player.cocoRageEnd = Date.now() + 20000;
               player.speedMult = 0.8 * 8;
               io.emit('playerEffect', { id: player.id, effect: 'cocoRage', duration: 20000 });
+              // Set active effect on player for client rendering
+              player.activeEffects = player.activeEffects || {};
+              player.activeEffects['cocoRage'] = Date.now() + 20000;
               // Affect nearby players too
               Object.values(players).forEach(p => {
                   if (p.id === player.id) return;
