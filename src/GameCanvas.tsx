@@ -263,6 +263,7 @@ export default function GameCanvas() {
   const [playersList, setPlayersList] = useState<Player[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   const [selectedGameMode, setSelectedGameMode] = useState<GameMode>('ffa');
+  const [matchTimeRemaining, setMatchTimeRemaining] = useState<number>(0);
   const entitiesRef = useRef<{ projectiles: Record<string, Projectile>, walls: Record<string, Wall>, zones: Record<string, Zone>, drones: Record<string, Drone> }>({ projectiles: {}, walls: {}, zones: {}, drones: {} });
   const abilityCooldownsRef = useRef<{ [key: number]: number }>({ 1: 0, 2: 0, 3: 0 });
   const safetyWarpReadyRef = useRef<boolean>(false);
@@ -676,6 +677,25 @@ export default function GameCanvas() {
       }
     };
   }, [screen]);
+
+  // Match timer
+  useEffect(() => {
+    if (!currentLobby || !currentLobby.matchStartTime || !currentLobby.matchSettings.timeLimit) {
+      setMatchTimeRemaining(0);
+      return;
+    }
+
+    const updateTimer = () => {
+      const elapsed = (Date.now() - currentLobby.matchStartTime!) / 1000;
+      const remaining = Math.max(0, currentLobby.matchSettings.timeLimit! - elapsed);
+      setMatchTimeRemaining(remaining);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [currentLobby]);
 
   useEffect(() => {
     if (!socket || screen !== 'game') return;
@@ -2119,6 +2139,16 @@ export default function GameCanvas() {
           <span className="hidden sm:block text-[10px] uppercase tracking-[0.3em] text-indigo-400 font-bold">Multiplayer Session</span>
           <h1 className="text-lg sm:text-2xl font-black tracking-tighter italic">ROSE FIGHTERS <span className="text-indigo-500">α</span></h1>
         </div>
+        
+        {matchTimeRemaining > 0 && (
+          <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
+            <div className="text-3xl sm:text-4xl font-black tracking-tighter text-white">
+              {Math.floor(matchTimeRemaining / 60)}:{(matchTimeRemaining % 60).toString().padStart(2, '0')}
+            </div>
+            <span className="text-[10px] uppercase tracking-widest text-gray-400">Time Remaining</span>
+          </div>
+        )}
+        
         <div className="flex items-center gap-3 sm:gap-6">
           <div className="hidden sm:flex flex-col items-end">
             <span className="text-[10px] uppercase tracking-widest text-gray-500">Controls</span>
