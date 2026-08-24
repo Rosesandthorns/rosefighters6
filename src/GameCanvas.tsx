@@ -263,6 +263,7 @@ export default function GameCanvas() {
   const [lobbyPlayers, setLobbyPlayers] = useState<Record<string, LobbyPlayer>>({});
   const [playersList, setPlayersList] = useState<Player[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
+  const [selectedGameMode, setSelectedGameMode] = useState<GameMode>('ffa');
   const entitiesRef = useRef<{ projectiles: Record<string, Projectile>, walls: Record<string, Wall>, zones: Record<string, Zone>, drones: Record<string, Drone> }>({ projectiles: {}, walls: {}, zones: {}, drones: {} });
   const abilityCooldownsRef = useRef<{ [key: number]: number }>({ 1: 0, 2: 0, 3: 0 });
   const safetyWarpReadyRef = useRef<boolean>(false);
@@ -1886,11 +1887,25 @@ export default function GameCanvas() {
           </header>
 
           <div className="flex flex-col gap-6 max-w-md mx-auto w-full">
+            <div className="bg-white/5 border border-white/10 p-4 rounded-lg">
+              <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-2 block">Game Mode</label>
+              <select
+                value={selectedGameMode}
+                onChange={(e) => setSelectedGameMode(e.target.value as GameMode)}
+                className="w-full px-4 py-3 rounded-lg bg-black/50 border border-white/20 text-white font-bold uppercase tracking-wider cursor-pointer"
+              >
+                <option value="ffa">FFA (Free For All)</option>
+                <option value="randomized">Randomized</option>
+                <option value="roster_choice">Roster Choice</option>
+                <option value="chaos_rounds">Chaos Rounds</option>
+              </select>
+            </div>
+
             <button
               onClick={() => {
                 const lobbyName = prompt('Enter lobby name:', 'My Lobby');
                 if (lobbyName) {
-                  socket?.emit('createLobby', { name: lobbyName, isPrivate: false, gameMode: 'ffa' });
+                  socket?.emit('createLobby', { name: lobbyName, isPrivate: false, gameMode: selectedGameMode });
                 }
               }}
               className="px-8 py-6 rounded-xl font-bold text-xl tracking-tight uppercase bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-[0_0_30px_rgba(79,70,229,0.4)]"
@@ -1902,7 +1917,7 @@ export default function GameCanvas() {
               onClick={() => {
                 const lobbyName = prompt('Enter lobby name:', 'My Private Lobby');
                 if (lobbyName) {
-                  socket?.emit('createLobby', { name: lobbyName, isPrivate: true, gameMode: 'ffa' });
+                  socket?.emit('createLobby', { name: lobbyName, isPrivate: true, gameMode: selectedGameMode });
                 }
               }}
               className="px-8 py-6 rounded-xl font-bold text-xl tracking-tight uppercase bg-purple-600 hover:bg-purple-500 text-white transition-all shadow-[0_0_30px_rgba(147,51,234,0.4)]"
@@ -1945,7 +1960,7 @@ export default function GameCanvas() {
                           {lobby.isPrivate && <span className="ml-2 text-xs bg-purple-500/30 text-purple-300 px-2 py-1 rounded">PRIVATE</span>}
                         </div>
                         <div className="text-sm text-gray-400">
-                          {Object.keys(lobby.players).length} players • {lobby.gameMode.toUpperCase()}
+                          {lobby.players ? Object.keys(lobby.players).length : 0} players • {lobby.gameMode?.toUpperCase() || 'FFA'}
                         </div>
                       </div>
                     </button>
@@ -1974,15 +1989,29 @@ export default function GameCanvas() {
             <div>
               <h1 className="text-4xl font-black tracking-tighter italic text-white mb-2">{currentLobby?.name || 'Lobby'}</h1>
               <p className="text-indigo-400 text-sm uppercase tracking-widest font-bold">
-                {currentLobby?.gameMode.toUpperCase()} • {currentLobby?.isPrivate ? `Code: ${currentLobby?.code}` : 'Public'}
+                {currentLobby?.gameMode?.toUpperCase() || 'FFA'} • {currentLobby?.isPrivate ? `Code: ${currentLobby?.code}` : 'Public'}
               </p>
             </div>
-            <button
-              onClick={() => socket?.emit('leaveLobby')}
-              className="px-4 py-2 rounded-lg bg-red-600/20 border border-red-500/50 text-red-400 hover:bg-red-600/30 transition-all text-sm font-bold uppercase tracking-wider"
-            >
-              Leave
-            </button>
+            <div className="flex gap-3">
+              {isAdmin && currentLobby?.gameState === 'LOBBY' && (
+                <select
+                  value={currentLobby?.gameMode || 'ffa'}
+                  onChange={(e) => socket?.emit('setGameMode', e.target.value as GameMode)}
+                  className="px-4 py-2 rounded-lg bg-indigo-600/20 border border-indigo-500/50 text-indigo-400 hover:bg-indigo-600/30 transition-all text-sm font-bold uppercase tracking-wider cursor-pointer"
+                >
+                  <option value="ffa">FFA</option>
+                  <option value="randomized">Randomized</option>
+                  <option value="roster_choice">Roster Choice</option>
+                  <option value="chaos_rounds">Chaos Rounds</option>
+                </select>
+              )}
+              <button
+                onClick={() => socket?.emit('leaveLobby')}
+                className="px-4 py-2 rounded-lg bg-red-600/20 border border-red-500/50 text-red-400 hover:bg-red-600/30 transition-all text-sm font-bold uppercase tracking-wider"
+              >
+                Leave
+              </button>
+            </div>
           </header>
 
           <div className="flex flex-col gap-12 mb-12">
@@ -2063,7 +2092,7 @@ export default function GameCanvas() {
           
           <div className="mt-8 text-center flex flex-col items-center">
             <div className="text-sm text-gray-500 uppercase tracking-widest font-bold mb-4">
-              Players Ready: {(Object.values(currentLobby?.players || {}) as LobbyPlayer[]).filter(p => p.isReady && !p.isSpectator).length} / {Object.values(currentLobby?.players || {}).filter(p => !p.isSpectator).length}
+              Players Ready: {(Object.values(currentLobby?.players || {}) as LobbyPlayer[]).filter(p => p.isReady && !p.isSpectator).length} / {(Object.values(currentLobby?.players || {}) as LobbyPlayer[]).filter(p => !p.isSpectator).length}
             </div>
             
             {currentLobby?.isPrivate && (
