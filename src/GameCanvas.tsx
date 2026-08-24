@@ -34,6 +34,7 @@ interface Player {
   mirageMoving?: boolean;
   cocoState?: 'idle' | 'walk' | 'attack13' | 'attack2';
   cocoRageActive?: boolean;
+  chaosMode?: boolean;
 }
 
 interface Particle {
@@ -343,6 +344,7 @@ export default function GameCanvas() {
 
     newSocket.on('lobbyUpdate', (lobby: Lobby) => {
       setCurrentLobby(lobby);
+      setSelectedGameMode(lobby.gameMode);
     });
 
     newSocket.on('lobbyJoinError', (data: { message: string }) => {
@@ -383,6 +385,19 @@ export default function GameCanvas() {
     newSocket.on('gameEnd', (data: { winnerId: string, reason: string }) => {
       alert(`Game Over! Winner: ${data.winnerId} (${data.reason})`);
       setScreen('lobby');
+    });
+
+    newSocket.on('chaosEvent', (data: { event: string }) => {
+      // Show chaos event notification
+      const eventNames = {
+        'random_gravity': 'Random Gravity!',
+        'speed_boost': 'Speed Boost!',
+        'damage_boost': 'Damage Boost!',
+        'knockback_boost': 'Knockback Boost!'
+      };
+      const eventName = eventNames[data.event as keyof typeof eventNames] || 'Chaos Event!';
+      // Could add visual notification here
+      console.log('Chaos Event:', eventName);
     });
 
     newSocket.on('applyKnockback', (data: { vx: number, vy: number, stunFrames: number }) => {

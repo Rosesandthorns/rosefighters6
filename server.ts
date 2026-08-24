@@ -87,6 +87,7 @@ interface Player {
   lastHitBy?: { id: string, time: number };
   brambleId?: string;
   brambleImmune?: number;
+  chaosMode?: boolean;
 }
 
 const ROSTER = [
@@ -351,6 +352,43 @@ setInterval(() => {
                 })));
                 continue;
             }
+        }
+    }
+
+    // Chaos mode events
+    if (lobby.gameMode === 'chaos_rounds') {
+        // Every 15 seconds, trigger a random chaos event
+        if (now % 15000 < 35) {
+            const chaosEvents = ['random_gravity', 'speed_boost', 'damage_boost', 'knockback_boost'];
+            const event = chaosEvents[Math.floor(Math.random() * chaosEvents.length)];
+            
+            Object.values(players).forEach(player => {
+                if (event === 'random_gravity') {
+                    player.velocity = player.velocity || { x: 0, y: 0 };
+                    player.velocity.y = (Math.random() - 0.5) * 20;
+                } else if (event === 'speed_boost') {
+                    player.speedMult = (player.speedMult || 1.0) * 1.5;
+                    setTimeout(() => { 
+                        if (players[player.id]) {
+                            const char = ROSTER.find(c => c.id === player.characterId);
+                            players[player.id].speedMult = char ? char.speedMult : 1.0;
+                        }
+                    }, 5000);
+                } else if (event === 'damage_boost') {
+                    player.isSuperArmor = true;
+                    setTimeout(() => { 
+                        if (players[player.id]) {
+                            players[player.id].isSuperArmor = false;
+                        }
+                    }, 5000);
+                } else if (event === 'knockback_boost') {
+                    player.velocity = player.velocity || { x: 0, y: 0 };
+                    player.velocity.x = (Math.random() - 0.5) * 30;
+                    player.velocity.y = -15;
+                }
+            });
+            
+            io.to(lobby.id).emit('chaosEvent', { event });
         }
     }
 
@@ -1184,33 +1222,133 @@ io.on('connection', (socket) => {
     lobby.gameState = 'PLAYING';
     lobby.matchStartTime = Date.now();
     
-    readyPlayers.forEach((player, idx) => {
-      const char = ROSTER.find(c => c.id === player.characterId);
-      const maxHp = char ? char.hp : 100;
-      
-      players[player.id] = {
-        id: player.id,
-        characterId: player.characterId,
-        x: 412 + (idx * 60) - (readyPlayers.length * 30),
-        y: player.characterId === 'wax' ? 350 : 50,
-        width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
-        height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
-        color: char ? char.color : '#fff',
-        health: maxHp,
-        maxHealth: maxHp,
-        facing: 'right',
-        velocity: { x: 0, y: 0 },
-        isAttacking: false,
-        isGrounded: false,
-        isGrabbingLedge: false,
-        isStunned: false,
-        isFastFalling: false,
-        score: 0,
-        speedMult: char ? char.speedMult : 1.0
-      };
-    });
+    // Handle different game modes
+    if (lobby.gameMode === 'randomized') {
+      // Randomize characters for all players
+      const randomCharacters = [...ROSTER];
+      readyPlayers.forEach((player, idx) => {
+        const randomIndex = Math.floor(Math.random() * randomCharacters.length);
+        const char = randomCharacters.splice(randomIndex, 1)[0];
+        const maxHp = char ? char.hp : 100;
+        
+        // Apply boss ban if enabled
+        if (lobby.matchSettings.bossBanEnabled && char.id === 'wax') {
+          const nonBossChar = randomCharacters.find(c => c.id !== 'wax') || ROSTER[0];
+          player.characterId = nonBossChar.id;
+        } else {
+          player.characterId = char.id;
+        }
+        
+        // Update lobby player character
+        lobby.players[player.id].characterId = player.characterId;
+        
+        players[player.id] = {
+          id: player.id,
+          characterId: player.characterId,
+          x: 412 + (idx * 60) - (readyPlayers.length * 30),
+          y: player.characterId === 'wax' ? 350 : 50,
+          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
+          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+          color: char ? char.color : '#fff',
+          health: maxHp,
+          maxHealth: maxHp,
+          facing: 'right',
+          velocity: { x: 0, y: 0 },
+          isAttacking: false,
+          isGrounded: false,
+          isGrabbingLedge: false,
+          isStunned: false,
+          isFastFalling: false,
+          score: 0,
+          speedMult: char ? char.speedMult : 1.0
+        };
+      });
+    } else if (lobby.gameMode === 'roster_choice') {
+      // Roster Choice - use selected characters (already set by players)
+      readyPlayers.forEach((player, idx) => {
+        const char = ROSTER.find(c => c.id === player.characterId);
+        const maxHp = char ? char.hp : 100;
+        
+        players[player.id] = {
+          id: player.id,
+          characterId: player.characterId,
+          x: 412 + (idx * 60) - (readyPlayers.length * 30),
+          y: player.characterId === 'wax' ? 350 : 50,
+          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
+          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+          color: char ? char.color : '#fff',
+          health: maxHp,
+          maxHealth: maxHp,
+          facing: 'right',
+          velocity: { x: 0, y: 0 },
+          isAttacking: false,
+          isGrounded: false,
+          isGrabbingLedge: false,
+          isStunned: false,
+          isFastFalling: false,
+          score: 0,
+          speedMult: char ? char.speedMult : 1.0
+        };
+      });
+    } else if (lobby.gameMode === 'chaos_rounds') {
+      // Chaos Rounds - same as FFA but with chaos effects
+      readyPlayers.forEach((player, idx) => {
+        const char = ROSTER.find(c => c.id === player.characterId);
+        const maxHp = char ? char.hp : 100;
+        
+        players[player.id] = {
+          id: player.id,
+          characterId: player.characterId,
+          x: 412 + (idx * 60) - (readyPlayers.length * 30),
+          y: player.characterId === 'wax' ? 350 : 50,
+          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
+          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+          color: char ? char.color : '#fff',
+          health: maxHp,
+          maxHealth: maxHp,
+          facing: 'right',
+          velocity: { x: 0, y: 0 },
+          isAttacking: false,
+          isGrounded: false,
+          isGrabbingLedge: false,
+          isStunned: false,
+          isFastFalling: false,
+          score: 0,
+          speedMult: char ? char.speedMult : 1.0,
+          chaosMode: true
+        };
+      });
+    } else {
+      // FFA - normal mode
+      readyPlayers.forEach((player, idx) => {
+        const char = ROSTER.find(c => c.id === player.characterId);
+        const maxHp = char ? char.hp : 100;
+        
+        players[player.id] = {
+          id: player.id,
+          characterId: player.characterId,
+          x: 412 + (idx * 60) - (readyPlayers.length * 30),
+          y: player.characterId === 'wax' ? 350 : 50,
+          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
+          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+          color: char ? char.color : '#fff',
+          health: maxHp,
+          maxHealth: maxHp,
+          facing: 'right',
+          velocity: { x: 0, y: 0 },
+          isAttacking: false,
+          isGrounded: false,
+          isGrabbingLedge: false,
+          isStunned: false,
+          isFastFalling: false,
+          score: 0,
+          speedMult: char ? char.speedMult : 1.0
+        };
+      });
+    }
     
     io.to(lobby.id).emit('gameStart', { players, lobby });
+    io.to(lobby.id).emit('lobbyUpdate', lobby);
     io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
       id: lobby.id,
       name: lobby.name,
