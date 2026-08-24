@@ -1943,47 +1943,44 @@ export default function GameCanvas() {
         </div>
       </main>
 
-      <footer className="relative z-10 grid grid-cols-2 gap-8 px-12 pb-12 shrink-0">
-        {playersList.slice(0, 2).map((p, idx) => {
+      <footer className="relative z-10 grid grid-cols-2 xl:grid-cols-4 gap-4 px-6 pb-6 shrink-0">
+        {playersList.slice(0, 4).map((p, idx) => {
           const isMe = p.id === myId;
-          const name = isMe ? 'P1 • YOU' : `P${idx + 1} • P-${p.id.substring(0, 4).toUpperCase()}`;
-          const colorClass = idx === 0 ? 'indigo' : 'purple';
-          const bgGlowClass = idx === 0 ? 'bg-indigo-600/20' : 'bg-purple-600/20';
-          const borderClass = idx === 0 ? 'border-indigo-500/50' : 'border-purple-500/50';
-          const iconBgClass = idx === 0 ? 'bg-indigo-900/50' : 'bg-purple-900/50';
-          const iconBorderClass = idx === 0 ? 'border-indigo-400/30' : 'border-purple-400/30';
-          const iconColorClass = idx === 0 ? 'bg-indigo-400' : 'bg-purple-400';
-          const textColorClass = idx === 0 ? 'text-indigo-400' : 'text-purple-400';
-          const textMutedClass = idx === 0 ? 'text-indigo-300' : 'text-purple-300';
+          const name = isMe ? `P${idx + 1} • YOU` : `P${idx + 1} • P-${p.id.substring(0, 4).toUpperCase()}`;
+          const colors = [
+            { bg: 'bg-indigo-600/20', border: 'border-indigo-500/50', iconBg: 'bg-indigo-900/50', iconBorder: 'border-indigo-400/30', text: 'text-indigo-400', muted: 'text-indigo-300' },
+            { bg: 'bg-purple-600/20', border: 'border-purple-500/50', iconBg: 'bg-purple-900/50', iconBorder: 'border-purple-400/30', text: 'text-purple-400', muted: 'text-purple-300' },
+            { bg: 'bg-rose-600/20',   border: 'border-rose-500/50',   iconBg: 'bg-rose-900/50',   iconBorder: 'border-rose-400/30',   text: 'text-rose-400',   muted: 'text-rose-300' },
+            { bg: 'bg-amber-600/20',  border: 'border-amber-500/50',  iconBg: 'bg-amber-900/50',  iconBorder: 'border-amber-400/30',  text: 'text-amber-400',  muted: 'text-amber-300' },
+          ];
+          const c = colors[idx] ?? colors[0];
           
           return (
             <div key={p.id} className="relative group">
-              <div className={`absolute inset-0 ${bgGlowClass} blur-xl rounded-2xl`}></div>
-              <div className={`relative bg-black/60 border ${borderClass} rounded-2xl p-6 flex items-center gap-6`}>
-                <div className={`w-20 h-20 ${iconBgClass} rounded-xl border ${iconBorderClass} flex items-center justify-center overflow-hidden`}>
+              <div className={`absolute inset-0 ${c.bg} blur-xl rounded-2xl`}></div>
+              <div className={`relative bg-black/60 border ${c.border} rounded-2xl p-4 flex items-center gap-4`}>
+                <div className={`w-14 h-14 ${c.iconBg} rounded-xl border ${c.iconBorder} flex items-center justify-center overflow-hidden shrink-0`}>
                   {p.characterId === 'pinedo' ? (
-                    <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-14 h-14 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                   ) : p.characterId === 'mirage' ? (
-                    <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-14 h-14 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                   ) : (
-                    <div className={`w-12 h-12 rounded-lg ${idx === 0 ? 'rotate-12' : '-rotate-12'}`} style={{ backgroundColor: p.color }}></div>
+                    <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
                   )}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-end mb-1">
                     <div className="flex flex-col">
-                      <span className={`text-[10px] uppercase tracking-widest ${textMutedClass}`}>{name}</span>
-                      <span className="text-sm font-bold uppercase tracking-tighter text-white">
-                        Playing as {ROSTER.find(c => c.id === p.characterId)?.name || 'Unknown'}
+                      <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>{name}</span>
+                      <span className="text-xs font-bold uppercase tracking-tighter text-white truncate">
+                        {ROSTER.find(r => r.id === p.characterId)?.name || 'Unknown'}
                       </span>
                     </div>
-                    <div className="flex gap-1">
-                      <span className={`text-[10px] uppercase tracking-widest ${textMutedClass}`}>Kills: {p.score}</span>
-                    </div>
+                    <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Kills: {p.score}</span>
                   </div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-5xl font-black italic tracking-tighter text-white">{p.health}</span>
-                    <span className={`text-2xl font-bold ${textColorClass}`}>HP</span>
+                    <span className="text-3xl font-black italic tracking-tighter text-white">{p.health}</span>
+                    <span className={`text-lg font-bold ${c.text}`}>HP</span>
                   </div>
                 </div>
               </div>
