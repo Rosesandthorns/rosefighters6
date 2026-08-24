@@ -81,7 +81,7 @@ interface Lobby {
 
 interface Projectile {
     id: string;
-    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap';
+    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate';
     x: number;
     y: number;
     vx: number;
@@ -90,17 +90,22 @@ interface Projectile {
     damage: number;
     life: number;
     state?: string;
+    angle?: number;
+    rotationSpeed?: number;
 }
 
 interface Wall {
     id: string;
     x: number;
     y: number;
+    targetY?: number;
     width: number;
     height: number;
     expires: number;
     type?: string;
     ownerId?: string;
+    rising?: boolean;
+    riseSpeed?: number;
 }
 
 interface Zone {
@@ -372,6 +377,13 @@ export default function GameCanvas() {
 
     newSocket.on('matchStartError', (data: { message: string }) => {
       alert(data.message);
+    });
+
+    newSocket.on('gameEnd', (data: { winnerId: string, reason: string }) => {
+      alert(`Game Over! Winner: ${data.winnerId} (${data.reason})`);
+      setScreen('main_menu');
+      setCurrentLobby(null);
+      setPlayerId('');
     });
 
     newSocket.on('applyKnockback', (data: { vx: number, vy: number, stunFrames: number }) => {
@@ -1580,7 +1592,7 @@ export default function GameCanvas() {
           } else if (proj.type === 'chocolate') {
               ctx.save();
               ctx.translate(proj.x, proj.y);
-              ctx.rotate(Date.now() / 80);
+              ctx.rotate(proj.angle || 0);
               ctx.fillStyle = '#7c2d12';
               ctx.fillRect(-7, -5, 14, 10);
               ctx.fillStyle = '#92400e';
@@ -2143,7 +2155,7 @@ export default function GameCanvas() {
         {matchTimeRemaining > 0 && (
           <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
             <div className="text-3xl sm:text-4xl font-black tracking-tighter text-white">
-              {Math.floor(matchTimeRemaining / 60)}:{(matchTimeRemaining % 60).toString().padStart(2, '0')}
+              {Math.floor(matchTimeRemaining / 60)}:{Math.floor(matchTimeRemaining % 60).toString().padStart(2, '0')}
             </div>
             <span className="text-[10px] uppercase tracking-widest text-gray-400">Time Remaining</span>
           </div>

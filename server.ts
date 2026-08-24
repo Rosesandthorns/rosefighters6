@@ -152,6 +152,8 @@ interface Projectile {
     y: number;
     startX?: number;
     startY?: number;
+    angle?: number;
+    rotationSpeed?: number;
     vx: number;
     vy: number;
     ownerId: string;
@@ -164,11 +166,14 @@ interface Wall {
     id: string;
     x: number;
     y: number;
+    targetY?: number;
     width: number;
     height: number;
     expires: number;
     type?: string;
     ownerId?: string;
+    rising?: boolean;
+    riseSpeed?: number;
 }
 
 interface Zone {
@@ -313,6 +318,56 @@ setInterval(() => {
         }
     }
 
+    // Check win condition for FFA and Chaos (15 kill streak lead)
+    if (lobby.gameMode === 'ffa' || lobby.gameMode === 'chaos_rounds') {
+        const playerScores = Object.values(players).map(p => ({ id: p.id, score: p.score }));
+        if (playerScores.length > 1) {
+            const sortedScores = playerScores.sort((a, b) => b.score - a.score);
+            const highestScore = sortedScores[0].score;
+            const secondHighestScore = sortedScores[1].score;
+            
+            if (highestScore - secondHighestScore >= 15) {
+                // Winner found
+                lobby.gameState = 'ENDED';
+                lobby.matchEndTime = Date.now();
+                io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'kill_streak_lead' });
+                io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+                    id: lobby.id,
+                    name: lobby.name,
+                    isPrivate: lobby.isPrivate,
+                    gameMode: lobby.gameMode,
+                    playerCount: Object.keys(lobby.players).length,
+                    gameState: lobby.gameState
+                })));
+                continue;
+            }
+        }
+    }
+
+    // Check time limit
+    if (lobby.matchSettings.timeLimit && lobby.matchStartTime) {
+        const elapsed = (now - lobby.matchStartTime) / 1000;
+        if (elapsed >= lobby.matchSettings.timeLimit) {
+            // Time's up - determine winner by score
+            const playerScores = Object.values(players).map(p => ({ id: p.id, score: p.score }));
+            if (playerScores.length > 0) {
+                const sortedScores = playerScores.sort((a, b) => b.score - a.score);
+                lobby.gameState = 'ENDED';
+                lobby.matchEndTime = Date.now();
+                io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'time_limit' });
+                io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+                    id: lobby.id,
+                    name: lobby.name,
+                    isPrivate: lobby.isPrivate,
+                    gameMode: lobby.gameMode,
+                    playerCount: Object.keys(lobby.players).length,
+                    gameState: lobby.gameState
+                })));
+                continue;
+            }
+        }
+    }
+
     // Process DoTs, Safety Warp, and Wombo Combo
     for (const player of Object.values(players)) {
         if (player.womboTimer && player.womboTimer > now) {
@@ -394,6 +449,8 @@ setInterval(() => {
                 if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
                     player.y < wall.y + wall.height && player.y + player.height > wall.y) {
                     if (now % 1000 < 35) applyDamage(player, 10, wall.ownerId);
+                    player.velocity = player.velocity || { x: 0, y: 0 };
+                    player.velocity.y = -12; // Push upward
                 }
             }
             if (wall.type === 'fire' && wall.ownerId !== player.id && player.characterId !== 'wisp') {
@@ -498,6 +555,16 @@ setInterval(() => {
         if (now >= wall.expires) {
             delete walls[id];
         }
+        
+        // Handle rising walls (Coco Fountain)
+        if (wall.rising && wall.targetY !== undefined) {
+            if (wall.y > wall.targetY) {
+                wall.y -= wall.riseSpeed || 10;
+                if (wall.y < wall.targetY) wall.y = wall.targetY;
+            } else {
+                wall.rising = false;
+            }
+        }
     }
 
     // Process Projectiles
@@ -514,6 +581,10 @@ setInterval(() => {
                 const len = Math.hypot(dx, dy);
                 if (len < 10) { proj.life = -1; } // absorbed
                 else { proj.vx = (dx / len) * 10; proj.vy = (dy / len) * 10; }
+            }
+            // Update rotation
+            if (proj.angle !== undefined && proj.rotationSpeed !== undefined) {
+                proj.angle += proj.rotationSpeed;
             }
         } else if (proj.type === 'boomerang') {            if (proj.life > 30) {
                 proj.vx -= (proj.vx > 0 ? 0.5 : -0.5);
@@ -1410,7 +1481,7 @@ io.on('connection', (socket) => {
           }
       } else if (player.characterId === 'coco') {
           if (data.ability === 1) {
-              // 4 chocolate pieces — 2 left, 2 right — boomerang back to origin
+              // 4 chocolate pieces — 2 left, 2 right — boomerang back to origin with spinning
               const cx = player.x + player.width / 2;
               const cy = player.y + player.height / 2;
               const speeds = [8, 14];
@@ -1421,20 +1492,33 @@ io.on('connection', (socket) => {
                           id: pid, type: 'chocolate',
                           x: cx, y: cy, startX: cx, startY: cy,
                           vx: dir * spd, vy: 0,
-                          ownerId: player.id, damage: 15, life: 90
+                          ownerId: player.id, damage: 15, life: 90,
+                          angle: 0, rotationSpeed: dir * 0.3
                       };
                   });
               });
               player.cocoState = 'attack13';
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack13' });
-              setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 220);
+              setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 3000);
           } else if (data.ability === 2) {
               // Cocoa Fountain — wall that rises from bottom, spans vertical height
               const wid = 'wall_' + entityIdCounter++;
               const fx = player.x + player.width / 2 - 15;
-              // Start from player's y position and rise upward
+              // Start from player's y position and rise upward to top of screen
               const startY = player.y + player.height;
-              walls[wid] = { id: wid, x: fx, y: startY, width: 30, height: 600, expires: Date.now() + 4000, type: 'cocoFountain', ownerId: player.id };
+              walls[wid] = { 
+                  id: wid, 
+                  x: fx, 
+                  y: startY, 
+                  targetY: 0, // Target is top of screen
+                  width: 30, 
+                  height: 600, 
+                  expires: Date.now() + 4000, 
+                  type: 'cocoFountain', 
+                  ownerId: player.id,
+                  rising: true,
+                  riseSpeed: 15
+              };
               player.cocoFountainId = wid;
               player.cocoState = 'attack2';
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack2' });
@@ -1940,7 +2024,6 @@ io.on('connection', (socket) => {
                   player.kaelenBomb = null;
                   io.emit('playerEffect', { id: player.id, effect: 'kaelenDetonate', x: bombX, y: bombY });
                   for (const p of Object.values(players)) {
-                      if (p.id === player.id) continue;
                       const dist = Math.hypot(p.x + p.width/2 - bombX, p.y + p.height/2 - bombY);
                       if (dist < 150) {
                           applyDamage(p, 50, player.id, true);
