@@ -259,7 +259,6 @@ export default function GameCanvas() {
     }
   };
 
-  const [appState, setAppState] = useState<'LOBBY' | 'PLAYING'>('LOBBY');
   const [lobbyPlayers, setLobbyPlayers] = useState<Record<string, LobbyPlayer>>({});
   const [playersList, setPlayersList] = useState<Player[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
@@ -658,7 +657,7 @@ export default function GameCanvas() {
 
   useEffect(() => {
     let audio: HTMLAudioElement | null = null;
-    if (appState === 'PLAYING') {
+    if (screen === 'game') {
       audio = new Audio(rivalThemeUrl);
       audio.loop = true;
       audio.volume = 0.15;
@@ -676,10 +675,10 @@ export default function GameCanvas() {
         audio.currentTime = 0;
       }
     };
-  }, [appState]);
+  }, [screen]);
 
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || screen !== 'game') return;
     
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1872,7 +1871,7 @@ export default function GameCanvas() {
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [socket, myId, appState]);
+  }, [socket, myId, screen]);
 
   if (screen === 'main_menu') {
     return (
