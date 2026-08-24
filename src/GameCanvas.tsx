@@ -1536,14 +1536,45 @@ export default function GameCanvas() {
         // ── Coco Rage Cloud Effect ─────────────────────────────────────────────
         if (player.activeEffects?.['cocoRage'] && player.activeEffects['cocoRage'] > Date.now()) {
             ctx.save();
-            ctx.globalAlpha = 0.3 + 0.1 * Math.sin(Date.now() / 100);
-            ctx.fillStyle = '#92400e'; // Chocolate brown
-            ctx.beginPath();
-            ctx.arc(player.x + player.width/2, player.y + player.height/2, 80, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#78350f';
-            ctx.lineWidth = 3;
-            ctx.stroke();
+            const centerX = player.x + player.width/2;
+            const centerY = player.y + player.height/2;
+            const pulse = 0.25 + 0.1 * Math.sin(Date.now() / 150);
+            
+            // Create a cloudy effect with multiple overlapping circles
+            ctx.globalAlpha = pulse;
+            
+            // Main cloud body - multiple overlapping circles for cloudy texture
+            const cloudColors = ['#92400e', '#78350f', '#451a03'];
+            const offsets = [
+                {x: 0, y: 0, r: 70},
+                {x: -20, y: -15, r: 55},
+                {x: 20, y: -10, r: 50},
+                {x: -15, y: 20, r: 45},
+                {x: 15, y: 15, r: 48},
+                {x: 0, y: -25, r: 40},
+                {x: -25, y: 5, r: 35},
+                {x: 25, y: 5, r: 38},
+            ];
+            
+            offsets.forEach((offset, i) => {
+                ctx.fillStyle = cloudColors[i % cloudColors.length];
+                ctx.beginPath();
+                ctx.arc(centerX + offset.x, centerY + offset.y, offset.r, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // Add some floating particles for extra cloud effect
+            for (let i = 0; i < 8; i++) {
+                const angle = (Date.now() / 1000 + i * 0.8) % (Math.PI * 2);
+                const dist = 50 + Math.sin(Date.now() / 200 + i) * 15;
+                const px = centerX + Math.cos(angle) * dist;
+                const py = centerY + Math.sin(angle) * dist;
+                ctx.fillStyle = '#a16207';
+                ctx.beginPath();
+                ctx.arc(px, py, 5 + Math.sin(Date.now() / 150 + i) * 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
             ctx.restore();
         }
 
@@ -2027,7 +2058,7 @@ export default function GameCanvas() {
                 // We need to position the sprite so the hitbox aligns with the player position
                 const originalSpriteHeight = 115;
                 const originalSpriteWidth = 78; // Based on the rightmost coordinate
-                const drawH = 65; // Match hitbox height exactly
+                const drawH = 90; // Make sprite larger for better visibility
                 const spriteScale = drawH / originalSpriteHeight;
                 const drawW = originalSpriteWidth * spriteScale;
                 
