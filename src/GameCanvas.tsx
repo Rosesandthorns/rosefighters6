@@ -53,6 +53,30 @@ interface LobbyPlayer {
   characterId: string | null;
   isReady: boolean;
   lastActive: number;
+  isSpectator: boolean;
+}
+
+type GameMode = 'ffa' | 'randomized' | 'roster_choice' | 'chaos_rounds';
+
+interface MatchSettings {
+  timeLimit?: number;
+  suddenDeathTime?: number;
+  bossBanEnabled?: boolean;
+}
+
+interface Lobby {
+  id: string;
+  name: string;
+  code: string;
+  isPrivate: boolean;
+  adminId: string;
+  players: Record<string, LobbyPlayer>;
+  gameMode: GameMode;
+  gameState: 'LOBBY' | 'PLAYING' | 'ENDED';
+  matchSettings: MatchSettings;
+  createdAt: number;
+  matchStartTime?: number;
+  matchEndTime?: number;
 }
 
 interface Projectile {
@@ -144,6 +168,12 @@ export default function GameCanvas() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [myId, setMyId] = useState<string>('');
   
+  // Lobby system state
+  const [screen, setScreen] = useState<'main_menu' | 'lobby' | 'game'>('main_menu');
+  const [availableLobbies, setAvailableLobbies] = useState<Lobby[]>([]);
+  const [currentLobby, setCurrentLobby] = useState<Lobby | null>(null);
+  const [playerId, setPlayerId] = useState<string>('');
+  
   const playersRef = useRef<Record<string, Player>>({});
   const keysRef = useRef<{ [key: string]: boolean }>({});
   const mouseRef = useRef<{ [key: number]: boolean }>({});
@@ -232,6 +262,7 @@ export default function GameCanvas() {
   const [appState, setAppState] = useState<'LOBBY' | 'PLAYING'>('LOBBY');
   const [lobbyPlayers, setLobbyPlayers] = useState<Record<string, LobbyPlayer>>({});
   const [playersList, setPlayersList] = useState<Player[]>([]);
+  const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   const entitiesRef = useRef<{ projectiles: Record<string, Projectile>, walls: Record<string, Wall>, zones: Record<string, Zone>, drones: Record<string, Drone> }>({ projectiles: {}, walls: {}, zones: {}, drones: {} });
   const abilityCooldownsRef = useRef<{ [key: number]: number }>({ 1: 0, 2: 0, 3: 0 });
   const safetyWarpReadyRef = useRef<boolean>(false);
@@ -288,19 +319,58 @@ export default function GameCanvas() {
         }
     });
 
-    newSocket.on('lobbyState', (data: { players: Record<string, LobbyPlayer>, state: 'LOBBY' | 'PLAYING' }) => {
-      setLobbyPlayers(data.players);
-      setAppState(data.state);
+    newSocket.on('availableLobbies', (lobbies: Lobby[]) => {
+      setAvailableLobbies(lobbies);
     });
 
-    newSocket.on('lobbyUpdate', (players: Record<string, LobbyPlayer>) => {
-      setLobbyPlayers(players);
+    newSocket.on('lobbyCreated', (data: { lobby: Lobby }) => {
+      setCurrentLobby(data.lobby);
+      setScreen('lobby');
     });
 
-    newSocket.on('gameStart', (serverPlayers: Record<string, Player>) => {
-      playersRef.current = serverPlayers;
-      setPlayersList(Object.values(serverPlayers));
-      setAppState('PLAYING');
+    newSocket.on('lobbyJoined', (data: { lobby: Lobby, playerId: string }) => {
+      setCurrentLobby(data.lobby);
+      setPlayerId(data.playerId);
+      setScreen('lobby');
+    });
+
+    newSocket.on('lobbyUpdate', (lobby: Lobby) => {
+      setCurrentLobby(lobby);
+    });
+
+    newSocket.on('lobbyJoinError', (data: { message: string }) => {
+      alert(data.message);
+    });
+
+    newSocket.on('kickedFromLobby', () => {
+      setCurrentLobby(null);
+      setPlayerId('');
+      setScreen('main_menu');
+    });
+
+    newSocket.on('adminChanged', (data: { newAdminId: string }) => {
+      if (currentLobby) {
+        setCurrentLobby({ ...currentLobby, adminId: data.newAdminId });
+      }
+    });
+
+    newSocket.on('lobbyClosed', (data: { lobbyId: string }) => {
+      if (currentLobby?.id === data.lobbyId) {
+        setCurrentLobby(null);
+        setPlayerId('');
+        setScreen('main_menu');
+      }
+    });
+
+    newSocket.on('gameStart', (data: { players: Record<string, Player>, lobby: Lobby }) => {
+      playersRef.current = data.players;
+      setPlayersList(Object.values(data.players));
+      setCurrentLobby(data.lobby);
+      setScreen('game');
+    });
+
+    newSocket.on('matchStartError', (data: { message: string }) => {
+      alert(data.message);
     });
 
     newSocket.on('applyKnockback', (data: { vx: number, vy: number, stunFrames: number }) => {
@@ -1803,8 +1873,95 @@ export default function GameCanvas() {
     };
   }, [socket, myId, appState]);
 
-  if (appState === 'LOBBY') {
-    const me = lobbyPlayers[myId];
+  if (screen === 'main_menu') {
+    return (
+      <div className="w-full min-h-screen bg-[#050508] text-white font-sans overflow-hidden relative flex flex-col">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,_#1a1a2e_0%,_#050508_70%)] opacity-50 pointer-events-none"></div>
+        <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4f46e5 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
+
+        <div className="relative z-10 w-full max-w-4xl mx-auto flex flex-col p-8 flex-1 justify-center">
+          <header className="mb-16 text-center">
+            <h1 className="text-6xl font-black tracking-tighter italic text-white mb-4">ROSE FIGHTERS</h1>
+            <p className="text-indigo-400 text-lg uppercase tracking-widest font-bold">Multiplayer Brawler</p>
+          </header>
+
+          <div className="flex flex-col gap-6 max-w-md mx-auto w-full">
+            <button
+              onClick={() => {
+                const lobbyName = prompt('Enter lobby name:', 'My Lobby');
+                if (lobbyName) {
+                  socket?.emit('createLobby', { name: lobbyName, isPrivate: false, gameMode: 'ffa' });
+                }
+              }}
+              className="px-8 py-6 rounded-xl font-bold text-xl tracking-tight uppercase bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-[0_0_30px_rgba(79,70,229,0.4)]"
+            >
+              Create Public Lobby
+            </button>
+
+            <button
+              onClick={() => {
+                const lobbyName = prompt('Enter lobby name:', 'My Private Lobby');
+                if (lobbyName) {
+                  socket?.emit('createLobby', { name: lobbyName, isPrivate: true, gameMode: 'ffa' });
+                }
+              }}
+              className="px-8 py-6 rounded-xl font-bold text-xl tracking-tight uppercase bg-purple-600 hover:bg-purple-500 text-white transition-all shadow-[0_0_30px_rgba(147,51,234,0.4)]"
+            >
+              Create Private Lobby
+            </button>
+
+            <button
+              onClick={() => {
+                const code = prompt('Enter lobby code:');
+                if (code) {
+                  socket?.emit('joinLobby', { code });
+                }
+              }}
+              className="px-8 py-6 rounded-xl font-bold text-xl tracking-tight uppercase bg-pink-600 hover:bg-pink-500 text-white transition-all shadow-[0_0_30px_rgba(219,39,119,0.4)]"
+            >
+              Join with Code
+            </button>
+
+            <div className="border-t border-white/10 pt-6 mt-4">
+              <p className="text-sm text-gray-400 uppercase tracking-widest font-bold mb-4 text-center">Available Lobbies</p>
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {availableLobbies.length === 0 ? (
+                  <p className="text-gray-500 text-center text-sm">No lobbies available</p>
+                ) : (
+                  availableLobbies.map(lobby => (
+                    <button
+                      key={lobby.id}
+                      onClick={() => socket?.emit('joinLobby', { lobbyId: lobby.id })}
+                      disabled={lobby.gameState === 'PLAYING'}
+                      className={`w-full px-6 py-4 rounded-lg text-left transition-all
+                        ${lobby.gameState === 'PLAYING' 
+                          ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed' 
+                          : 'bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400'
+                        }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <span className="font-bold text-white">{lobby.name}</span>
+                          {lobby.isPrivate && <span className="ml-2 text-xs bg-purple-500/30 text-purple-300 px-2 py-1 rounded">PRIVATE</span>}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          {Object.keys(lobby.players).length} players • {lobby.gameMode.toUpperCase()}
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === 'lobby') {
+    const me = currentLobby?.players[playerId];
+    const isAdmin = currentLobby?.adminId === playerId;
     const isReady = me?.isReady;
     
     return (
@@ -1813,9 +1970,19 @@ export default function GameCanvas() {
         <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4f46e5 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
 
         <div className="relative z-10 w-full max-w-5xl mx-auto flex flex-col p-8 flex-1">
-          <header className="mb-12 text-center">
-            <h1 className="text-4xl font-black tracking-tighter italic text-white mb-2">ROSE FIGHTERS</h1>
-            <p className="text-indigo-400 text-sm uppercase tracking-widest font-bold">Waiting for players...</p>
+          <header className="mb-8 flex justify-between items-center">
+            <div>
+              <h1 className="text-4xl font-black tracking-tighter italic text-white mb-2">{currentLobby?.name || 'Lobby'}</h1>
+              <p className="text-indigo-400 text-sm uppercase tracking-widest font-bold">
+                {currentLobby?.gameMode.toUpperCase()} • {currentLobby?.isPrivate ? `Code: ${currentLobby?.code}` : 'Public'}
+              </p>
+            </div>
+            <button
+              onClick={() => socket?.emit('leaveLobby')}
+              className="px-4 py-2 rounded-lg bg-red-600/20 border border-red-500/50 text-red-400 hover:bg-red-600/30 transition-all text-sm font-bold uppercase tracking-wider"
+            >
+              Leave
+            </button>
           </header>
 
           <div className="flex flex-col gap-12 mb-12">
@@ -1824,10 +1991,10 @@ export default function GameCanvas() {
                 <h2 className="text-2xl font-bold italic text-white mb-6 border-b border-white/10 pb-2">{category}</h2>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
                   {ROSTER.filter(c => c.category === category).map((char) => {
-                     const playersArray = Object.values(lobbyPlayers) as LobbyPlayer[];
+                     const playersArray = Object.values(currentLobby?.players || {}) as LobbyPlayer[];
                const playerOwner = playersArray.find(p => p.characterId === char.id);
                const isTaken = !!playerOwner;
-               const isMe = playerOwner?.id === myId;
+               const isMe = playerOwner?.id === playerId;
                
                let borderClass = 'border-white/10';
                let opacityClass = 'opacity-100';
@@ -1847,7 +2014,7 @@ export default function GameCanvas() {
                return (
                  <button 
                    key={char.id}
-                   disabled={isTaken && !isMe}
+                   disabled={isTaken && !isMe || me?.isSpectator}
                    onClick={() => socket?.emit('selectCharacter', char.id)}
                    className={`relative flex flex-col items-center justify-center bg-black/60 p-6 rounded-xl border-2 ${borderClass} ${opacityClass} hover:border-indigo-400 transition-all cursor-pointer`}
                  >
@@ -1872,38 +2039,49 @@ export default function GameCanvas() {
             ))}
           </div>
 
-          <div className="flex justify-center mt-auto">
+          <div className="flex justify-center gap-4 mt-auto">
             <button
-              disabled={!me?.characterId}
+              disabled={!me?.characterId || me?.isSpectator}
               onClick={() => socket?.emit('toggleReady')}
               className={`px-12 py-4 rounded-full font-black text-2xl tracking-tighter italic uppercase transition-all
-                ${!me?.characterId ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
+                ${!me?.characterId || me?.isSpectator ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
                   isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}
               `}
             >
               {isReady ? 'READY!' : 'LOCK IN'}
             </button>
+            
+            {isAdmin && (
+              <button
+                onClick={() => socket?.emit('startMatch')}
+                className="px-8 py-4 rounded-full font-black text-xl tracking-tighter italic uppercase bg-yellow-600 hover:bg-yellow-500 text-white transition-all shadow-[0_0_30px_rgba(234,179,8,0.4)]"
+              >
+                START MATCH
+              </button>
+            )}
           </div>
           
           <div className="mt-8 text-center flex flex-col items-center">
             <div className="text-sm text-gray-500 uppercase tracking-widest font-bold mb-4">
-              Players Ready: {(Object.values(lobbyPlayers) as LobbyPlayer[]).filter(p => p.isReady).length} / {Object.keys(lobbyPlayers).length}
+              Players Ready: {(Object.values(currentLobby?.players || {}) as LobbyPlayer[]).filter(p => p.isReady && !p.isSpectator).length} / {Object.values(currentLobby?.players || {}).filter(p => !p.isSpectator).length}
             </div>
             
-            <div className="bg-indigo-950/30 border border-indigo-500/30 p-4 rounded-lg max-w-md w-full">
-              <p className="text-xs text-indigo-300 uppercase tracking-widest font-bold mb-2">Invite Friends</p>
-              <p className="text-xs text-gray-400 mb-2">Players must be on this EXACT URL to join the same lobby:</p>
-              <div className="bg-black/50 p-2 rounded border border-white/10 text-center select-all cursor-pointer hover:border-indigo-400 transition-colors">
-                <code className="text-indigo-400 text-sm">{typeof window !== 'undefined' ? window.location.origin : ''}</code>
+            {currentLobby?.isPrivate && (
+              <div className="bg-indigo-950/30 border border-indigo-500/30 p-4 rounded-lg max-w-md w-full">
+                <p className="text-xs text-indigo-300 uppercase tracking-widest font-bold mb-2">Lobby Code</p>
+                <div className="bg-black/50 p-3 rounded border border-white/10 text-center select-all cursor-pointer hover:border-indigo-400 transition-colors">
+                  <code className="text-indigo-400 text-2xl font-bold tracking-widest">{currentLobby.code}</code>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  return (
+  if (screen === 'game') {
+    return (
     <div className="w-full h-screen bg-[#050508] text-white font-sans overflow-hidden relative flex flex-col">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,_#1a1a2e_0%,_#050508_70%)] opacity-50 pointer-events-none"></div>
       <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4f46e5 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
@@ -2193,6 +2371,15 @@ export default function GameCanvas() {
         <div className="w-[1px] h-3 bg-white/20"></div>
         <span className="text-[9px] uppercase tracking-widest text-gray-400">Players: {playersList.length}</span>
       </div>
+    </div>
+    );
+  }
+
+  return (
+    <div className="w-full min-h-screen bg-[#050508] text-white font-sans overflow-hidden relative flex flex-col items-center justify-center">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,_#1a1a2e_0%,_#050508_70%)] opacity-50 pointer-events-none"></div>
+      <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4f46e5 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
+      <p className="relative z-10 text-2xl font-bold text-white">Loading...</p>
     </div>
   );
 }

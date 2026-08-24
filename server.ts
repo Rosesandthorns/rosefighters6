@@ -114,6 +114,35 @@ interface LobbyPlayer {
   characterId: string | null;
   isReady: boolean;
   lastActive: number;
+  isSpectator: boolean;
+  rosterChoice?: string[];
+  rosterOrder?: string[];
+  currentRosterIndex?: number;
+}
+
+interface Lobby {
+  id: string;
+  name: string;
+  code: string;
+  isPrivate: boolean;
+  adminId: string;
+  players: Record<string, LobbyPlayer>;
+  gameMode: GameMode;
+  gameState: 'LOBBY' | 'PLAYING' | 'ENDED';
+  matchSettings: MatchSettings;
+  createdAt: number;
+  matchStartTime?: number;
+  matchEndTime?: number;
+}
+
+type GameMode = 'ffa' | 'randomized' | 'roster_choice' | 'chaos_rounds';
+
+interface MatchSettings {
+  timeLimit?: number;
+  suddenDeathTime?: number;
+  speedMultiplier?: number;
+  damageMultiplier?: number;
+  bossBanEnabled?: boolean;
 }
 
 interface Projectile {
@@ -164,13 +193,14 @@ interface Drone {
 }
 
 const players: Record<string, Player> = {};
-const lobbyPlayers: Record<string, LobbyPlayer> = {};
+const lobbies: Record<string, Lobby> = {};
+const playerLobbyMap: Record<string, string> = {};
 const projectiles: Record<string, Projectile> = {};
 const walls: Record<string, Wall> = {};
 const zones: Record<string, Zone> = {};
 const drones: Record<string, Drone> = {};
 let entityIdCounter = 0;
-let gameState: 'LOBBY' | 'PLAYING' = 'LOBBY';
+let lobbyIdCounter = 0;
 
 function applyDamage(target: Player, damage: number, attackerId?: string, isExplosion = false) {
     if (target.isInvincible) return;
@@ -253,8 +283,11 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
 }
 
 setInterval(() => {
-    if (gameState !== 'PLAYING') return;
-    const now = Date.now();
+    // Process all active lobbies
+    for (const [lobbyId, lobby] of Object.entries(lobbies)) {
+        if (lobby.gameState !== 'PLAYING') continue;
+        
+        const now = Date.now();
 
     // Process Zones (Future Prediction)
     for (const [id, zone] of Object.entries(zones)) {
@@ -361,8 +394,6 @@ setInterval(() => {
                 if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
                     player.y < wall.y + wall.height && player.y + player.height > wall.y) {
                     if (now % 1000 < 35) applyDamage(player, 10, wall.ownerId);
-                    player.velocity = player.velocity || { x: 0, y: 0 };
-                    player.velocity.y = -15;
                 }
             }
             if (wall.type === 'fire' && wall.ownerId !== player.id && player.characterId !== 'wisp') {
@@ -738,106 +769,344 @@ setInterval(() => {
         zones: { ...zones },
         drones: { ...drones }
     });
+    }
 }, 1000 / 30);
+
+// Helper function to generate lobby code
+function generateLobbyCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 4; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+// Helper function to get lobby by player ID
+function getLobbyByPlayerId(playerId: string): Lobby | null {
+  const lobbyId = playerLobbyMap[playerId];
+  return lobbyId ? lobbies[lobbyId] : null;
+}
+
+// Helper function to get default settings for game mode
+function getDefaultSettings(gameMode: GameMode): MatchSettings {
+  switch (gameMode) {
+    case 'ffa':
+      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: true };
+    case 'randomized':
+      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: false };
+    case 'roster_choice':
+      return { bossBanEnabled: false };
+    case 'chaos_rounds':
+      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: false };
+    default:
+      return {};
+  }
+}
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
-  lobbyPlayers[socket.id] = { id: socket.id, characterId: null, isReady: false, lastActive: Date.now() };
-  socket.emit('lobbyState', { players: lobbyPlayers, state: 'LOBBY' });
-  socket.broadcast.emit('lobbyUpdate', lobbyPlayers);
+  // Send available lobbies list
+  socket.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+    id: lobby.id,
+    name: lobby.name,
+    isPrivate: lobby.isPrivate,
+    gameMode: lobby.gameMode,
+    playerCount: Object.keys(lobby.players).length,
+    gameState: lobby.gameState
+  })));
+
+  socket.on('createLobby', (data: { name: string, isPrivate: boolean, gameMode: GameMode }) => {
+    const lobbyId = `lobby_${lobbyIdCounter++}`;
+    const code = data.isPrivate ? generateLobbyCode() : '';
+    
+    const newLobby: Lobby = {
+      id: lobbyId,
+      name: data.name,
+      code: code,
+      isPrivate: data.isPrivate,
+      adminId: socket.id,
+      players: {},
+      gameMode: data.gameMode,
+      gameState: 'LOBBY',
+      matchSettings: getDefaultSettings(data.gameMode),
+      createdAt: Date.now()
+    };
+    
+    newLobby.players[socket.id] = {
+      id: socket.id,
+      characterId: null,
+      isReady: false,
+      lastActive: Date.now(),
+      isSpectator: false
+    };
+    
+    lobbies[lobbyId] = newLobby;
+    playerLobbyMap[socket.id] = lobbyId;
+    
+    socket.join(lobbyId);
+    socket.emit('lobbyCreated', { lobby: newLobby });
+    socket.emit('lobbyJoined', { lobby: newLobby, playerId: socket.id });
+    io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+      id: lobby.id,
+      name: lobby.name,
+      isPrivate: lobby.isPrivate,
+      gameMode: lobby.gameMode,
+      playerCount: Object.keys(lobby.players).length,
+      gameState: lobby.gameState
+    })));
+  });
+
+  socket.on('joinLobby', (data: { lobbyId?: string, code?: string }) => {
+    let targetLobby: Lobby | null = null;
+    
+    if (data.lobbyId) {
+      targetLobby = lobbies[data.lobbyId];
+    } else if (data.code) {
+      targetLobby = Object.values(lobbies).find(lobby => lobby.code === data.code) || null;
+    }
+    
+    if (!targetLobby) {
+      socket.emit('lobbyJoinError', { message: 'Lobby not found' });
+      return;
+    }
+    
+    if (targetLobby.gameState === 'PLAYING') {
+      targetLobby.players[socket.id] = {
+        id: socket.id,
+        characterId: null,
+        isReady: false,
+        lastActive: Date.now(),
+        isSpectator: true
+      };
+    } else {
+      targetLobby.players[socket.id] = {
+        id: socket.id,
+        characterId: null,
+        isReady: false,
+        lastActive: Date.now(),
+        isSpectator: false
+      };
+    }
+    
+    playerLobbyMap[socket.id] = targetLobby.id;
+    socket.join(targetLobby.id);
+    socket.emit('lobbyJoined', { lobby: targetLobby, playerId: socket.id });
+    io.to(targetLobby.id).emit('lobbyUpdate', targetLobby);
+  });
+
+  socket.on('leaveLobby', () => {
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (lobby) {
+      delete lobby.players[socket.id];
+      delete playerLobbyMap[socket.id];
+      socket.leave(lobby.id);
+      
+      if (lobby.adminId === socket.id) {
+        const remainingPlayers = Object.keys(lobby.players);
+        if (remainingPlayers.length > 0) {
+          lobby.adminId = remainingPlayers[0];
+          io.to(lobby.id).emit('adminChanged', { newAdminId: lobby.adminId });
+        } else {
+          delete lobbies[lobby.id];
+          io.emit('lobbyClosed', { lobbyId: lobby.id });
+          io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+            id: lobby.id,
+            name: lobby.name,
+            isPrivate: lobby.isPrivate,
+            gameMode: lobby.gameMode,
+            playerCount: Object.keys(lobby.players).length,
+            gameState: lobby.gameState
+          })));
+          return;
+        }
+      }
+      
+      io.to(lobby.id).emit('lobbyUpdate', lobby);
+      io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+        id: lobby.id,
+        name: lobby.name,
+        isPrivate: lobby.isPrivate,
+        gameMode: lobby.gameMode,
+        playerCount: Object.keys(lobby.players).length,
+        gameState: lobby.gameState
+      })));
+    }
+  });
 
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
-    delete lobbyPlayers[socket.id];
-    io.emit('lobbyUpdate', lobbyPlayers);
     
-    if (players[socket.id]) {
-        delete players[socket.id];
-        io.emit('playerDisconnected', socket.id);
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (lobby) {
+      delete lobby.players[socket.id];
+      delete playerLobbyMap[socket.id];
+      
+      if (lobby.adminId === socket.id) {
+        const remainingPlayers = Object.keys(lobby.players);
+        if (remainingPlayers.length > 0) {
+          lobby.adminId = remainingPlayers[0];
+          io.to(lobby.id).emit('adminChanged', { newAdminId: lobby.adminId });
+        } else {
+          delete lobbies[lobby.id];
+          io.emit('lobbyClosed', { lobbyId: lobby.id });
+          return;
+        }
+      }
+      
+      io.to(lobby.id).emit('lobbyUpdate', lobby);
     }
 
-    if (Object.keys(lobbyPlayers).length === 0) {
-        gameState = 'LOBBY';
-        for (const key in players) delete players[key];
+    if (players[socket.id]) {
+      delete players[socket.id];
+      io.emit('playerDisconnected', socket.id);
     }
   });
 
   socket.on('selectCharacter', (charId) => {
-    if (!lobbyPlayers[socket.id]) return;
-    lobbyPlayers[socket.id].lastActive = Date.now();
-    const taken = Object.values(lobbyPlayers).some(p => p.characterId === charId);
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (!lobby) return;
+    
+    const player = lobby.players[socket.id];
+    if (!player || player.isSpectator) return;
+    
+    player.lastActive = Date.now();
+    
+    const taken = Object.values(lobby.players).some(p => p.characterId === charId && p.id !== socket.id);
+    
+    if (lobby.gameMode === 'ffa' && lobby.matchSettings.bossBanEnabled && charId === 'wax') {
+      socket.emit('characterSelectError', { message: 'Wax is banned in FFA mode' });
+      return;
+    }
+    
     if (!taken || charId === null) {
-      lobbyPlayers[socket.id].characterId = charId;
-      lobbyPlayers[socket.id].isReady = false;
-      io.emit('lobbyUpdate', lobbyPlayers);
+      player.characterId = charId;
+      player.isReady = false;
+      io.to(lobby.id).emit('lobbyUpdate', lobby);
     }
   });
 
-  socket.on('toggleReady', () => {
-    const p = lobbyPlayers[socket.id];
-    if (!p) return;
-    p.lastActive = Date.now();
+  socket.on('setGameMode', (gameMode: GameMode) => {
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (!lobby || lobby.adminId !== socket.id) return;
     
-    if (p.characterId) {
-      if (gameState === 'PLAYING') {
-         // Mid-game join
-         const char = ROSTER.find(c => c.id === p.characterId);
-         const maxHp = char ? char.hp : 100;
-         players[p.id] = {
-            id: p.id,
-            characterId: p.characterId,
-            x: Math.random() * 400 + 312,
-            y: p.characterId === 'wax' ? 350 : 50,
-            width: p.characterId === 'wax' ? 100 : p.characterId === 'mirage' ? 12 : p.characterId === 'coco' ? 40 : 50,
-            height: p.characterId === 'wax' ? 120 : p.characterId === 'mirage' ? 40 : p.characterId === 'coco' ? 65 : 50,
-            color: char ? char.color : '#fff',
-            health: maxHp, maxHealth: maxHp,
-            facing: 'right', velocity: {x: 0, y: 0},
-            isGrounded: false, isGrabbingLedge: false, score: 0, speedMult: char?.speedMult || 1.0,
-            isAttacking: false, isStunned: false, isFastFalling: false
-         };
-         
-         socket.emit('lobbyState', { players: lobbyPlayers, state: 'PLAYING' });
-         socket.emit('currentPlayers', players);
-         io.emit('newPlayer', players[p.id]);
-         return;
-      }
+    if (lobby.gameState !== 'LOBBY') return;
+    
+    lobby.gameMode = gameMode;
+    lobby.matchSettings = getDefaultSettings(gameMode);
+    
+    if (gameMode === 'ffa' || lobby.matchSettings.bossBanEnabled) {
+      Object.values(lobby.players).forEach(player => {
+        if (player.characterId === 'wax') {
+          player.characterId = null;
+          player.isReady = false;
+        }
+      });
+    }
+    
+    io.to(lobby.id).emit('lobbyUpdate', lobby);
+  });
 
-      p.isReady = !p.isReady;
-      io.emit('lobbyUpdate', lobbyPlayers);
+  socket.on('updateSettings', (settings: Partial<MatchSettings>) => {
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (!lobby || lobby.adminId !== socket.id) return;
+    
+    if (lobby.gameState !== 'LOBBY') return;
+    
+    lobby.matchSettings = { ...lobby.matchSettings, ...settings };
+    io.to(lobby.id).emit('lobbyUpdate', lobby);
+  });
 
-      const allLobby = Object.values(lobbyPlayers);
-      const activeLobby = allLobby.filter(lp => (Date.now() - lp.lastActive) < 60000);
+  socket.on('kickPlayer', (playerId: string) => {
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (!lobby || lobby.adminId !== socket.id) return;
+    
+    if (playerId === socket.id) return;
+    
+    const targetPlayer = lobby.players[playerId];
+    if (targetPlayer) {
+      delete lobby.players[playerId];
+      delete playerLobbyMap[playerId];
       
-      if (activeLobby.length > 0 && activeLobby.every(lp => lp.isReady)) {
-        gameState = 'PLAYING';
-        activeLobby.forEach((lp, idx) => {
-          const char = ROSTER.find(c => c.id === lp.characterId);
-          const maxHp = char ? char.hp : 100;
-          players[lp.id] = {
-            id: lp.id,
-            characterId: lp.characterId || 'void_knight',
-            x: 412 + (idx * 60) - (activeLobby.length * 30),
-            y: lp.characterId === 'wax' ? 350 : 50,
-            width: lp.characterId === 'wax' ? 100 : lp.characterId === 'mirage' ? 12 : lp.characterId === 'coco' ? 40 : 50,
-            height: lp.characterId === 'wax' ? 120 : lp.characterId === 'mirage' ? 40 : lp.characterId === 'coco' ? 65 : 50,
-            color: char ? char.color : '#fff',
-            health: maxHp,
-            maxHealth: maxHp,
-            facing: 'right',
-            velocity: { x: 0, y: 0 },
-            isAttacking: false,
-            isGrounded: false,
-            isGrabbingLedge: false,
-            isStunned: false,
-            isFastFalling: false,
-            score: 0,
-            speedMult: char ? char.speedMult : 1.0
-          };
-        });
-        io.emit('gameStart', players);
-      }
+      io.to(playerId).emit('kickedFromLobby');
+      io.to(lobby.id).emit('lobbyUpdate', lobby);
+      io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+        id: lobby.id,
+        name: lobby.name,
+        isPrivate: lobby.isPrivate,
+        gameMode: lobby.gameMode,
+        playerCount: Object.keys(lobby.players).length,
+        gameState: lobby.gameState
+      })));
+    }
+  });
+
+  socket.on('startMatch', () => {
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (!lobby || lobby.adminId !== socket.id) return;
+    
+    if (lobby.gameState !== 'LOBBY') return;
+    
+    const readyPlayers = Object.values(lobby.players).filter(p => !p.isSpectator && p.characterId && p.isReady);
+    
+    if (readyPlayers.length < 2) {
+      socket.emit('matchStartError', { message: 'Need at least 2 ready players' });
+      return;
+    }
+    
+    lobby.gameState = 'PLAYING';
+    lobby.matchStartTime = Date.now();
+    
+    readyPlayers.forEach((player, idx) => {
+      const char = ROSTER.find(c => c.id === player.characterId);
+      const maxHp = char ? char.hp : 100;
+      
+      players[player.id] = {
+        id: player.id,
+        characterId: player.characterId,
+        x: 412 + (idx * 60) - (readyPlayers.length * 30),
+        y: player.characterId === 'wax' ? 350 : 50,
+        width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
+        height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+        color: char ? char.color : '#fff',
+        health: maxHp,
+        maxHealth: maxHp,
+        facing: 'right',
+        velocity: { x: 0, y: 0 },
+        isAttacking: false,
+        isGrounded: false,
+        isGrabbingLedge: false,
+        isStunned: false,
+        isFastFalling: false,
+        score: 0,
+        speedMult: char ? char.speedMult : 1.0
+      };
+    });
+    
+    io.to(lobby.id).emit('gameStart', { players, lobby });
+    io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+      id: lobby.id,
+      name: lobby.name,
+      isPrivate: lobby.isPrivate,
+      gameMode: lobby.gameMode,
+      playerCount: Object.keys(lobby.players).length,
+      gameState: lobby.gameState
+    })));
+  });
+
+  socket.on('toggleReady', () => {
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (!lobby) return;
+    
+    const player = lobby.players[socket.id];
+    if (!player || player.isSpectator) return;
+    
+    player.lastActive = Date.now();
+    
+    if (player.characterId) {
+      player.isReady = !player.isReady;
+      io.to(lobby.id).emit('lobbyUpdate', lobby);
     }
   });
 
@@ -930,7 +1199,8 @@ io.on('connection', (socket) => {
 
   socket.on('useAbility', (data) => {
       const player = players[socket.id];
-      if (!player || gameState !== 'PLAYING') return;
+      const lobby = getLobbyByPlayerId(socket.id);
+      if (!player || !lobby || lobby.gameState !== 'PLAYING') return;
 
       if (player.characterId === 'mirage') {
           const mirageAttacking = player.mirageState === 'attack1' || player.mirageState === 'attack2' || player.mirageState === 'attack3' || player.mirageState === 'attack3reverse';
@@ -1159,11 +1429,12 @@ io.on('connection', (socket) => {
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack13' });
               setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 220);
           } else if (data.ability === 2) {
-              // Cocoa Fountain — wall that rises from ground, spans vertical height
+              // Cocoa Fountain — wall that rises from bottom, spans vertical height
               const wid = 'wall_' + entityIdCounter++;
               const fx = player.x + player.width / 2 - 15;
-              // Start from ground level (y=500 is roughly ground level in this game) and extend upward
-              walls[wid] = { id: wid, x: fx, y: 0, width: 30, height: 600, expires: Date.now() + 4000, type: 'cocoFountain', ownerId: player.id };
+              // Start from player's y position and rise upward
+              const startY = player.y + player.height;
+              walls[wid] = { id: wid, x: fx, y: startY, width: 30, height: 600, expires: Date.now() + 4000, type: 'cocoFountain', ownerId: player.id };
               player.cocoFountainId = wid;
               player.cocoState = 'attack2';
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack2' });
@@ -1173,7 +1444,7 @@ io.on('connection', (socket) => {
               const hpLost = Math.min(20, player.health - 1);
               if (hpLost > 0) player.health -= hpLost;
               io.emit('playerHealthChanged', { id: player.id, health: player.health });
-              // Apply rage cloud — 8x speed, 20s
+              // Apply rage cloud — 8x speed for Coco only, 20s
               player.cocoRageActive = true;
               player.cocoRageEnd = Date.now() + 20000;
               player.speedMult = 0.8 * 8;
@@ -1181,14 +1452,20 @@ io.on('connection', (socket) => {
               // Set active effect on player for client rendering
               player.activeEffects = player.activeEffects || {};
               player.activeEffects['cocoRage'] = Date.now() + 20000;
-              // Affect nearby players too
+              // Affect nearby players only at start - no speed boost, just effect Pip/Nexus floating
               Object.values(players).forEach(p => {
                   if (p.id === player.id) return;
                   const dist = Math.hypot(p.x - player.x, p.y - player.y);
                   if (dist < 200) {
-                      p.speedMult = (p.characterId === 'pip' || p.characterId === 'nexus') ? (p.speedMult || 1) * 8 : (p.speedMult || 1) * 8;
-                      io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: p.characterId === 'pip' || p.characterId === 'nexus' });
-                      setTimeout(() => { if (players[p.id]) { const char = ROSTER.find(c => c.id === p.characterId); players[p.id].speedMult = char ? char.speedMult : 1; } }, 20000);
+                      // For Pip and Nexus, temporarily disable floating ability
+                      if (p.characterId === 'pip' || p.characterId === 'nexus') {
+                          p.activeEffects = p.activeEffects || {};
+                          p.activeEffects['cocoRageHit'] = Date.now() + 20000;
+                          io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: true });
+                          setTimeout(() => { if (players[p.id]) { delete players[p.id].activeEffects?.['cocoRageHit']; } }, 20000);
+                      } else {
+                          io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: false });
+                      }
                   }
               });
               player.cocoState = 'attack13';
