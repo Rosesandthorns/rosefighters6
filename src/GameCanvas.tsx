@@ -35,6 +35,8 @@ interface Player {
   cocoState?: 'idle' | 'walk' | 'attack13' | 'attack2';
   cocoRageActive?: boolean;
   chaosMode?: boolean;
+  isEliminated?: boolean;
+  currentRosterIndex?: number;
 }
 
 interface Particle {
@@ -55,6 +57,7 @@ interface LobbyPlayer {
   isReady: boolean;
   lastActive: number;
   isSpectator: boolean;
+  rosterChoice?: string[];
 }
 
 type GameMode = 'ffa' | 'randomized' | 'roster_choice' | 'chaos_rounds';
@@ -179,6 +182,7 @@ export default function GameCanvas() {
   const [availableLobbies, setAvailableLobbies] = useState<Lobby[]>([]);
   const [currentLobby, setCurrentLobby] = useState<Lobby | null>(null);
   const [playerId, setPlayerId] = useState<string>('');
+  const [localRoster, setLocalRoster] = useState<string[]>([]);
   
   const playersRef = useRef<Record<string, Player>>({});
   const keysRef = useRef<{ [key: string]: boolean }>({});
@@ -340,11 +344,18 @@ export default function GameCanvas() {
       setPlayerId(data.playerId);
       setSelectedGameMode(data.lobby.gameMode);
       setScreen('lobby');
+      // Reset local roster when joining a lobby
+      setLocalRoster([]);
     });
 
     newSocket.on('lobbyUpdate', (lobby: Lobby) => {
       setCurrentLobby(lobby);
       setSelectedGameMode(lobby.gameMode);
+      // Sync local roster with server
+      const me = lobby.players[playerId];
+      if (me?.rosterChoice) {
+        setLocalRoster(me.rosterChoice);
+      }
     });
 
     newSocket.on('lobbyJoinError', (data: { message: string }) => {
@@ -398,6 +409,18 @@ export default function GameCanvas() {
       const eventName = eventNames[data.event as keyof typeof eventNames] || 'Chaos Event!';
       // Could add visual notification here
       console.log('Chaos Event:', eventName);
+    });
+
+    newSocket.on('characterChange', (data: { id: string, newCharacterId: string }) => {
+      console.log('Character change:', data);
+    });
+
+    newSocket.on('playerEliminated', (data: { id: string }) => {
+      console.log('Player eliminated:', data);
+    });
+
+    newSocket.on('rosterError', (data: { message: string }) => {
+      alert(data.message);
     });
 
     newSocket.on('applyKnockback', (data: { vx: number, vy: number, stunFrames: number }) => {
@@ -2059,6 +2082,44 @@ export default function GameCanvas() {
             </div>
           </header>
 
+          {/* Roster Choice Mode UI */}
+          {currentLobby?.gameMode === 'roster_choice' && currentLobby?.gameState === 'LOBBY' && (
+            <div className="bg-black/40 rounded-xl p-6 border border-indigo-500/30 mb-8">
+              <h2 className="text-xl font-bold text-white mb-4">Select Your Roster (5 Characters)</h2>
+              <p className="text-indigo-300 text-sm mb-4">Choose 5 characters in order. You'll switch to the next one when you die.</p>
+              <div className="flex gap-3 mb-4">
+                {Array.from({ length: 5 }).map((_, i) => {
+                  const selectedChar = localRoster[i];
+                  return (
+                    <div
+                      key={i}
+                      className={`w-20 h-20 rounded-lg border-2 flex flex-col items-center justify-center ${selectedChar ? 'border-indigo-500 bg-indigo-500/20' : 'border-white/20 bg-black/60'}`}
+                    >
+                      {selectedChar ? (
+                        <>
+                          <span className="text-white font-bold text-sm">{ROSTER.find(c => c.id === selectedChar)?.name}</span>
+                          <span className="text-indigo-400 text-xs">#{i + 1}</span>
+                        </>
+                      ) : (
+                        <span className="text-white/40 text-xs">Slot {i + 1}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {localRoster.length === 5 && (
+                <button
+                  onClick={() => socket?.emit('setRosterChoice', localRoster)}
+                  className="px-6 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-bold transition-all"
+                >
+                  Confirm Roster
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Character Selection Grid (for non-roster modes) */}
+          {currentLobby?.gameMode !== 'roster_choice' && (
           <div className="flex flex-col gap-12 mb-12">
             {[...new Set(ROSTER.map(c => c.category))].map(category => (
               <div key={category}>
@@ -2070,26 +2131,52 @@ export default function GameCanvas() {
                const isTaken = !!playerOwner;
                const isMe = playerOwner?.id === playerId;
                
+               // For roster choice mode, check if character is in my roster
+               const isInMyRoster = localRoster.includes(char.id);
+               const rosterIndex = localRoster.indexOf(char.id);
+               
                let borderClass = 'border-white/10';
                let opacityClass = 'opacity-100';
                let selectionText = '';
                
-               if (isTaken) {
-                  if (isMe) {
-                     borderClass = 'border-indigo-500 shadow-[0_0_20px_rgba(79,70,229,0.5)]';
-                     selectionText = 'YOUR SELECTION';
-                  } else {
-                     borderClass = 'border-red-500/50';
-                     opacityClass = 'opacity-50 grayscale';
-                     selectionText = 'TAKEN';
-                  }
+               if (currentLobby?.gameMode === 'roster_choice') {
+                 if (isInMyRoster) {
+                   borderClass = 'border-indigo-500 shadow-[0_0_20px_rgba(79,70,229,0.5)]';
+                   selectionText = `#${(rosterIndex || 0) + 1}`;
+                 }
+               } else {
+                 if (isTaken) {
+                    if (isMe) {
+                       borderClass = 'border-indigo-500 shadow-[0_0_20px_rgba(79,70,229,0.5)]';
+                       selectionText = 'YOUR SELECTION';
+                    } else {
+                       borderClass = 'border-red-500/50';
+                       opacityClass = 'opacity-50 grayscale';
+                       selectionText = 'TAKEN';
+                    }
+                 }
                }
                
                return (
                  <button 
                    key={char.id}
                    disabled={isTaken && !isMe || me?.isSpectator}
-                   onClick={() => socket?.emit('selectCharacter', char.id)}
+                   onClick={() => {
+                     if (currentLobby?.gameMode === 'roster_choice') {
+                       // Roster choice logic
+                       if (localRoster.includes(char.id)) {
+                         // Remove from roster
+                         setLocalRoster(localRoster.filter(id => id !== char.id));
+                       } else if (localRoster.length < 5) {
+                         // Add to roster
+                         setLocalRoster([...localRoster, char.id]);
+                       }
+                     } else {
+                       // Normal character selection
+                       socket?.emit('selectCharacter', char.id);
+                     }
+                   }}
+                   disabled={currentLobby?.gameMode === 'roster_choice' ? false : (isTaken && !isMe || me?.isSpectator)}
                    className={`relative flex flex-col items-center justify-center bg-black/60 p-6 rounded-xl border-2 ${borderClass} ${opacityClass} hover:border-indigo-400 transition-all cursor-pointer`}
                  >
                     {char.id === 'pinedo' ? (
@@ -2103,7 +2190,7 @@ export default function GameCanvas() {
                     )}
                     <span className="font-bold tracking-tight text-lg mb-1">{char.name}</span>
                     <div className="h-4">
-                       {isTaken && <span className={`text-[10px] uppercase tracking-widest ${isMe ? 'text-indigo-400' : 'text-red-400'}`}>{selectionText}</span>}
+                       {(isTaken || isInMyRoster) && <span className={`text-[10px] uppercase tracking-widest ${isInMyRoster ? 'text-indigo-400' : isMe ? 'text-indigo-400' : 'text-red-400'}`}>{selectionText}</span>}
                     </div>
                  </button>
                  )
@@ -2112,13 +2199,16 @@ export default function GameCanvas() {
               </div>
             ))}
           </div>
+          )}
 
           <div className="flex justify-center gap-4 mt-auto">
             <button
-              disabled={!me?.characterId || me?.isSpectator}
+              disabled={currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5) : (!me?.characterId || me?.isSpectator)}
               onClick={() => socket?.emit('toggleReady')}
               className={`px-12 py-4 rounded-full font-black text-2xl tracking-tighter italic uppercase transition-all
-                ${!me?.characterId || me?.isSpectator ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
+                ${currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
+                  isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white' :
+                  (!me?.characterId || me?.isSpectator) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
                   isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}
               `}
             >

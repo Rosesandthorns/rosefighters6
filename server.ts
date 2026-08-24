@@ -88,6 +88,8 @@ interface Player {
   brambleId?: string;
   brambleImmune?: number;
   chaosMode?: boolean;
+  isEliminated?: boolean;
+  currentRosterIndex?: number;
 }
 
 const ROSTER = [
@@ -117,7 +119,6 @@ interface LobbyPlayer {
   lastActive: number;
   isSpectator: boolean;
   rosterChoice?: string[];
-  rosterOrder?: string[];
   currentRosterIndex?: number;
 }
 
@@ -144,6 +145,7 @@ interface MatchSettings {
   speedMultiplier?: number;
   damageMultiplier?: number;
   bossBanEnabled?: boolean;
+  rosterSize?: number;
 }
 
 interface Projectile {
@@ -282,10 +284,122 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
             players[attackerId].score += 1;
             io.emit('scoreUpdated', { id: attackerId, score: players[attackerId].score });
         }
+        
+        // Randomized mode: give new random character on death
+        const lobby = getLobbyByPlayerId(target.id);
+        if (lobby && lobby.gameMode === 'randomized') {
+            const randomChar = ROSTER[Math.floor(Math.random() * ROSTER.length)];
+            const char = ROSTER.find(c => c.id === randomChar.id);
+            target.characterId = randomChar.id;
+            target.health = char ? char.hp : 100;
+            target.maxHealth = char ? char.hp : 100;
+            target.speedMult = char ? char.speedMult : 1.0;
+            target.width = target.characterId === 'wax' ? 100 : target.characterId === 'mirage' ? 12 : target.characterId === 'coco' ? 40 : 50;
+            target.height = target.characterId === 'wax' ? 120 : target.characterId === 'mirage' ? 40 : target.characterId === 'coco' ? 65 : 50;
+            target.color = char ? char.color : '#fff';
+            io.emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
+        }
+        
+        // Randomized mode: give killer new random character on kill
+        if (lobby && lobby.gameMode === 'randomized' && attackerId && players[attackerId]) {
+            const attacker = players[attackerId];
+            const randomChar = ROSTER[Math.floor(Math.random() * ROSTER.length)];
+            const char = ROSTER.find(c => c.id === randomChar.id);
+            attacker.characterId = randomChar.id;
+            attacker.health = char ? char.hp : 100;
+            attacker.maxHealth = char ? char.hp : 100;
+            attacker.speedMult = char ? char.speedMult : 1.0;
+            attacker.width = attacker.characterId === 'wax' ? 100 : attacker.characterId === 'mirage' ? 12 : attacker.characterId === 'coco' ? 40 : 50;
+            attacker.height = attacker.characterId === 'wax' ? 120 : attacker.characterId === 'mirage' ? 40 : attacker.characterId === 'coco' ? 65 : 50;
+            attacker.color = char ? char.color : '#fff';
+            io.emit('playerEffect', { id: attacker.id, effect: 'characterChange', newCharacterId: attacker.characterId });
+        }
+        
+        // Roster Choice mode: switch to next character on death
+        if (lobby && lobby.gameMode === 'roster_choice') {
+            const roster = lobby.players[target.id].rosterChoice || [];
+            const currentIndex = target.currentRosterIndex || 0;
+            const nextIndex = currentIndex + 1;
+            
+            if (nextIndex < roster.length) {
+                // Switch to next character
+                const nextCharId = roster[nextIndex];
+                const char = ROSTER.find(c => c.id === nextCharId);
+                target.characterId = nextCharId;
+                target.health = char ? char.hp : 100;
+                target.maxHealth = char ? char.hp : 100;
+                target.speedMult = char ? char.speedMult : 1.0;
+                target.width = target.characterId === 'wax' ? 100 : target.characterId === 'mirage' ? 12 : target.characterId === 'coco' ? 40 : 50;
+                target.height = target.characterId === 'wax' ? 120 : target.characterId === 'mirage' ? 40 : target.characterId === 'coco' ? 65 : 50;
+                target.color = char ? char.color : '#fff';
+                target.currentRosterIndex = nextIndex;
+                io.emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
+            } else {
+                // No more characters - eliminate player
+                target.isEliminated = true;
+                io.emit('playerEliminated', { id: target.id });
+            }
+        }
+        
         io.emit('playerRespawned', target);
     } else {
         io.emit('playerHealthChanged', { id: target.id, health: target.health });
     }
+}
+
+// Periodic cleanup of empty lobbies (every 30 seconds)
+setInterval(() => {
+  const now = Date.now();
+  for (const [lobbyId, lobby] of Object.entries(lobbies)) {
+    const playerCount = Object.keys(lobby.players).length;
+    const age = now - lobby.createdAt;
+    
+    // Delete empty lobbies older than 5 minutes
+    if (playerCount === 0 && age > 300000) {
+      delete lobbies[lobbyId];
+      io.emit('lobbyClosed', { lobbyId: lobby.id });
+      io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+        id: lobby.id,
+        name: lobby.name,
+        isPrivate: lobby.isPrivate,
+        gameMode: lobby.gameMode,
+        playerCount: Object.keys(lobby.players).length,
+        gameState: lobby.gameState
+      })));
+    }
+  }
+}, 30000);
+
+// Helper function to generate lobby code
+function generateLobbyCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 4; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+// Helper function to get lobby by player ID
+function getLobbyByPlayerId(playerId: string): Lobby | null {
+  const lobbyId = playerLobbyMap[playerId];
+  return lobbyId ? lobbies[lobbyId] : null;
+}
+
+// Helper function to get default settings for game mode
+function getDefaultSettings(gameMode: GameMode): MatchSettings {
+  switch (gameMode) {
+    case 'ffa':
+      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: true };
+    case 'randomized':
+      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: false };
+    case 'roster_choice':
+      return { bossBanEnabled: false, rosterSize: 5 };
+    case 'chaos_rounds':
+      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: false };
+    default:
+      return {};
+  }
 }
 
 setInterval(() => {
@@ -295,8 +409,8 @@ setInterval(() => {
         
         const now = Date.now();
 
-    // Process Zones (Future Prediction)
-    for (const [id, zone] of Object.entries(zones)) {
+        // Process Zones (Future Prediction)
+        for (const [id, zone] of Object.entries(zones)) {
         if (now >= zone.timer) {
             io.emit('zoneDetonate', { x: zone.x, y: zone.y, radius: zone.radius });
             for (const player of Object.values(players)) {
@@ -319,8 +433,8 @@ setInterval(() => {
         }
     }
 
-    // Check win condition for FFA and Chaos (15 kill streak lead)
-    if (lobby.gameMode === 'ffa' || lobby.gameMode === 'chaos_rounds') {
+        // Check win condition for FFA and Chaos (15 kill streak lead)
+        if (lobby.gameMode === 'ffa' || lobby.gameMode === 'chaos_rounds') {
         const playerScores = Object.values(players).map(p => ({ id: p.id, score: p.score }));
         if (playerScores.length > 1) {
             const sortedScores = playerScores.sort((a, b) => b.score - a.score);
@@ -354,9 +468,39 @@ setInterval(() => {
             }
         }
     }
+        
+        // Check win condition for Roster Choice (last player with characters left)
+        if (lobby.gameMode === 'roster_choice') {
+        const activePlayers = Object.values(players).filter(p => !p.isEliminated);
+        if (activePlayers.length === 1) {
+            // Winner found
+            lobby.gameState = 'LOBBY';
+            lobby.matchEndTime = Date.now();
+            lobby.matchStartTime = undefined;
+            // Clear players from the game and reset lobby players
+            for (const playerId of Object.keys(players)) {
+                delete players[playerId];
+            }
+            for (const playerId of Object.keys(lobby.players)) {
+                lobby.players[playerId].isReady = false;
+                lobby.players[playerId].characterId = null;
+            }
+            io.to(lobby.id).emit('gameEnd', { winnerId: activePlayers[0].id, reason: 'last_standing' });
+            io.to(lobby.id).emit('lobbyUpdate', lobby);
+            io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+                id: lobby.id,
+                name: lobby.name,
+                isPrivate: lobby.isPrivate,
+                gameMode: lobby.gameMode,
+                playerCount: Object.keys(lobby.players).length,
+                gameState: lobby.gameState
+            })));
+            continue;
+        }
+    }
 
-    // Chaos mode events
-    if (lobby.gameMode === 'chaos_rounds') {
+        // Chaos mode events
+        if (lobby.gameMode === 'chaos_rounds') {
         // Every 15 seconds, trigger a random chaos event
         if (now % 15000 < 35) {
             const chaosEvents = ['random_gravity', 'speed_boost', 'damage_boost', 'knockback_boost'];
@@ -391,9 +535,9 @@ setInterval(() => {
             io.to(lobby.id).emit('chaosEvent', { event });
         }
     }
-
-    // Check time limit
-    if (lobby.matchSettings.timeLimit && lobby.matchStartTime) {
+        
+        // Check time limit
+        if (lobby.matchSettings.timeLimit && lobby.matchStartTime) {
         const elapsed = (now - lobby.matchStartTime) / 1000;
         if (elapsed >= lobby.matchSettings.timeLimit) {
             // Time's up - determine winner by score
@@ -426,8 +570,9 @@ setInterval(() => {
         }
     }
 
-    // Process DoTs, Safety Warp, and Wombo Combo
-    for (const player of Object.values(players)) {
+        // Process DoTs, Safety Warp, and Wombo Combo
+        for (const player of Object.values(players)) {
+        if (player.isEliminated) continue;
         if (player.womboTimer && player.womboTimer > now) {
             // Hit every 0.3s (we can just use dots system or apply here directly if tick matches)
             // Actually, just check if frame count is multiple of 9 (30fps * 0.3 = 9 frames)
@@ -608,8 +753,8 @@ setInterval(() => {
         }
     }
 
-    // Process Walls
-    for (const [id, wall] of Object.entries(walls)) {
+        // Process Walls
+        for (const [id, wall] of Object.entries(walls)) {
         if (now >= wall.expires) {
             delete walls[id];
         }
@@ -625,8 +770,8 @@ setInterval(() => {
         }
     }
 
-    // Process Projectiles
-    for (const [id, proj] of Object.entries(projectiles)) {
+        // Process Projectiles
+        for (const [id, proj] of Object.entries(projectiles)) {
         if (proj.type === 'chocolate') {
             // Boomerang-style: return to origin point after half life
             if (proj.life > 45) {
@@ -783,178 +928,123 @@ setInterval(() => {
         }
     }
 
-    // Process Drones
-    const currentDrones = { A: new Set(), B: new Set(), C: new Set() };
-    for (const drone of Object.values(drones)) {
-        if (drone.type && drone.hp > 0) currentDrones[drone.type as 'A'|'B'|'C'].add(drone.ownerId);
-    }
+        // Process Drones
+        const currentDrones = { A: new Set(), B: new Set(), C: new Set() };
+        for (const drone of Object.values(drones)) {
+            if (drone.type && drone.hp > 0) currentDrones[drone.type as 'A'|'B'|'C'].add(drone.ownerId);
+        }
 
-    for (const [id, drone] of Object.entries(drones)) {
-        if (drone.hp <= 0) {
-            delete drones[id];
-            continue;
-        }
-        
-        let nearestTarget = null;
-        let minDist = 9999;
-        for (const player of Object.values(players)) {
-            if (player.id === drone.ownerId) continue;
-            const dist = Math.hypot(player.x - drone.x, player.y - drone.y);
-            if (dist < minDist) {
-                minDist = dist;
-                nearestTarget = player;
+        for (const [id, drone] of Object.entries(drones)) {
+            if (drone.hp <= 0) {
+                delete drones[id];
+                continue;
             }
-        }
-        
-        if (drone.type === 'C') {
-            drone.angle = (drone.angle || 0) + 0.05;
-            const owner = players[drone.ownerId];
-            if (owner) {
-                drone.x = owner.x + owner.width/2 + Math.cos(drone.angle)*60 - 10;
-                drone.y = owner.y + owner.height/2 + Math.sin(drone.angle)*60 - 10;
-            } else {
-                drone.hp = 0; // owner died
+            
+            let nearestTarget = null;
+            let minDist = 9999;
+            for (const player of Object.values(players)) {
+                if (player.id === drone.ownerId) continue;
+                const dist = Math.hypot(player.x - drone.x, player.y - drone.y);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearestTarget = player;
+                }
             }
-        } else if (nearestTarget) {
-            const dx = nearestTarget.x + nearestTarget.width / 2 - drone.x;
-            const dy = nearestTarget.y + nearestTarget.height / 2 - drone.y;
-            const len = Math.hypot(dx, dy);
-            if (len > 0) {
-                const speed = drone.type === 'A' ? 1.5 : (drone.type === 'B' ? 12 : 5);
-                drone.vx = (dx / len) * speed;
-                drone.vy = (dy / len) * speed;
-            }
-        }
-        
-        if (drone.type !== 'C') {
-            drone.x += drone.vx;
-            drone.y += drone.vy;
-        }
-        
-        for (const wall of Object.values(walls)) {
-            if (['bramble', 'bloodCloud'].includes(wall.type || '')) continue;
-            if (drone.x > wall.x && drone.x < wall.x + wall.width &&
-                drone.y > wall.y && drone.y < wall.y + wall.height) {
-                if (wall.type === 'fire') {
-                    drone.hp -= 20; // Breaks to fire walls
+            
+            if (drone.type === 'C') {
+                drone.angle = (drone.angle || 0) + 0.05;
+                const owner = players[drone.ownerId];
+                if (owner) {
+                    drone.x = owner.x + owner.width/2 + Math.cos(drone.angle)*60 - 10;
+                    drone.y = owner.y + owner.height/2 + Math.sin(drone.angle)*60 - 10;
                 } else {
-                    if (drone.type === 'B') {
-                        drone.hp = 0;
-                    } else if (drone.type !== 'C') {
-                        drone.x -= drone.vx; // Stop on Mirage's walls
-                        drone.y -= drone.vy;
+                    drone.hp = 0; // owner died
+                }
+            } else if (nearestTarget) {
+                const dx = nearestTarget.x + nearestTarget.width / 2 - drone.x;
+                const dy = nearestTarget.y + nearestTarget.height / 2 - drone.y;
+                const len = Math.hypot(dx, dy);
+                if (len > 0) {
+                    const speed = drone.type === 'A' ? 1.5 : (drone.type === 'B' ? 12 : 5);
+                    drone.vx = (dx / len) * speed;
+                    drone.vy = (dy / len) * speed;
+                }
+            }
+            
+            if (drone.type !== 'C') {
+                drone.x += drone.vx;
+                drone.y += drone.vy;
+            }
+            
+            for (const wall of Object.values(walls)) {
+                if (['bramble', 'bloodCloud'].includes(wall.type || '')) continue;
+                if (drone.x > wall.x && drone.x < wall.x + wall.width &&
+                    drone.y > wall.y && drone.y < wall.y + wall.height) {
+                    if (wall.type === 'fire') {
+                        drone.hp -= 20; // Breaks to fire walls
+                    } else {
+                        if (drone.type === 'B') {
+                            drone.hp = 0;
+                        } else if (drone.type !== 'C') {
+                            drone.x -= drone.vx; // Stop on Mirage's walls
+                            drone.y -= drone.vy;
+                        }
                     }
                 }
             }
+            
+            for (const player of Object.values(players)) {
+                if (player.id === drone.ownerId) continue;
+                if (player.id === drone.ownerId) continue;
+                
+                const radius = drone.type === 'A' ? 5 : (drone.type === 'B' ? 8 : (drone.type === 'C' ? 10 : 10));
+                if (drone.x > player.x - radius && drone.x < player.x + player.width + radius &&
+                    drone.y > player.y - radius && drone.y < player.y + player.height + radius) {
+                    
+                    let dmg = 15;
+                    if (drone.type === 'A') dmg = 1;
+                    else if (drone.type === 'B') dmg = 10;
+                    else if (drone.type === 'C') dmg = 5;
+
+                    const beforeHp = player.health;
+                    applyDamage(player, dmg, drone.ownerId, true);
+                    if (player.health < beforeHp) {
+                        io.to(player.id).emit('applyKnockback', { vx: drone.vx > 0 ? 5 : -5, vy: drone.type === 'C' ? -5 : 15, stunFrames: 15 });
+                    }
+                    drone.hp = 0;
+                    break;
+                }
+            }
         }
         
+        // Process Drone Cooldowns
         for (const player of Object.values(players)) {
-            if (player.id === drone.ownerId) continue;
-            if (player.id === drone.ownerId) continue;
-            
-            const radius = drone.type === 'A' ? 5 : (drone.type === 'B' ? 8 : (drone.type === 'C' ? 10 : 10));
-            if (drone.x > player.x - radius && drone.x < player.x + player.width + radius &&
-                drone.y > player.y - radius && drone.y < player.y + player.height + radius) {
-                
-                let dmg = 15;
-                if (drone.type === 'A') dmg = 1;
-                else if (drone.type === 'B') dmg = 10;
-                else if (drone.type === 'C') dmg = 5;
-
-                const beforeHp = player.health;
-                applyDamage(player, dmg, drone.ownerId, true);
-                if (player.health < beforeHp) {
-                    io.to(player.id).emit('applyKnockback', { vx: drone.vx > 0 ? 5 : -5, vy: drone.type === 'C' ? -5 : 15, stunFrames: 15 });
+            if (player.characterId === 'neddy') {
+                if (!currentDrones.A.has(player.id) && player.hadDronesA) {
+                    player.droneACooldown = Date.now() + 5000;
                 }
-                drone.hp = 0;
-                break;
+                player.hadDronesA = currentDrones.A.has(player.id);
+                
+                if (!currentDrones.B.has(player.id) && player.hadDronesB) {
+                    player.droneBCooldown = Date.now() + 5000;
+                }
+                player.hadDronesB = currentDrones.B.has(player.id);
+                
+                if (!currentDrones.C.has(player.id) && player.hadDronesC) {
+                    player.droneCCooldown = Date.now() + 10000;
+                }
+                player.hadDronesC = currentDrones.C.has(player.id);
             }
         }
-    }
-    
-    // Process Drone Cooldowns
-    for (const player of Object.values(players)) {
-        if (player.characterId === 'neddy') {
-            if (!currentDrones.A.has(player.id) && player.hadDronesA) {
-                player.droneACooldown = Date.now() + 5000;
-            }
-            player.hadDronesA = currentDrones.A.has(player.id);
-            
-            if (!currentDrones.B.has(player.id) && player.hadDronesB) {
-                player.droneBCooldown = Date.now() + 5000;
-            }
-            player.hadDronesB = currentDrones.B.has(player.id);
-            
-            if (!currentDrones.C.has(player.id) && player.hadDronesC) {
-                player.droneCCooldown = Date.now() + 10000;
-            }
-            player.hadDronesC = currentDrones.C.has(player.id);
-        }
-    }
 
-    io.emit('entitiesUpdate', { 
-        projectiles: { ...projectiles }, 
-        walls: { ...walls }, 
-        zones: { ...zones },
-        drones: { ...drones }
-    });
+        io.emit('entitiesUpdate', { 
+            projectiles: { ...projectiles }, 
+            walls: { ...walls }, 
+            zones: { ...zones },
+            drones: { ...drones }
+        });
     }
 }, 1000 / 30);
-
-// Helper function to generate lobby code
-function generateLobbyCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 4; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-// Helper function to get lobby by player ID
-function getLobbyByPlayerId(playerId: string): Lobby | null {
-  const lobbyId = playerLobbyMap[playerId];
-  return lobbyId ? lobbies[lobbyId] : null;
-}
-
-// Helper function to get default settings for game mode
-function getDefaultSettings(gameMode: GameMode): MatchSettings {
-  switch (gameMode) {
-    case 'ffa':
-      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: true };
-    case 'randomized':
-      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: false };
-    case 'roster_choice':
-      return { bossBanEnabled: false };
-    case 'chaos_rounds':
-      return { timeLimit: 180, suddenDeathTime: 60, bossBanEnabled: false };
-    default:
-      return {};
-  }
-}
-
-// Periodic cleanup of empty lobbies (every 30 seconds)
-setInterval(() => {
-  const now = Date.now();
-  for (const [lobbyId, lobby] of Object.entries(lobbies)) {
-    const playerCount = Object.keys(lobby.players).length;
-    const age = now - lobby.createdAt;
-    
-    // Delete empty lobbies older than 5 minutes
-    if (playerCount === 0 && age > 300000) {
-      delete lobbies[lobbyId];
-      io.emit('lobbyClosed', { lobbyId: lobby.id });
-      io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-        id: lobby.id,
-        name: lobby.name,
-        isPrivate: lobby.isPrivate,
-        gameMode: lobby.gameMode,
-        playerCount: Object.keys(lobby.players).length,
-        gameState: lobby.gameState
-      })));
-    }
-  }
-}, 30000);
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -1151,6 +1241,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('setRosterChoice', (roster: string[]) => {
+    const lobby = getLobbyByPlayerId(socket.id);
+    if (!lobby) return;
+    
+    const player = lobby.players[socket.id];
+    if (!player || player.isSpectator) return;
+    
+    player.lastActive = Date.now();
+    
+    // Validate roster size
+    const rosterSize = lobby.matchSettings.rosterSize || 5;
+    if (roster.length !== rosterSize) {
+      socket.emit('rosterError', { message: `Roster must have exactly ${rosterSize} characters` });
+      return;
+    }
+    
+    // Validate all characters exist
+    const validCharacters = roster.every(charId => ROSTER.some(c => c.id === charId));
+    if (!validCharacters) {
+      socket.emit('rosterError', { message: 'Invalid character in roster' });
+      return;
+    }
+    
+    player.rosterChoice = roster;
+    player.characterId = roster[0]; // Set first character as initial
+    player.isReady = false;
+    io.to(lobby.id).emit('lobbyUpdate', lobby);
+  });
+
   socket.on('setGameMode', (gameMode: GameMode) => {
     const lobby = getLobbyByPlayerId(socket.id);
     if (!lobby || lobby.adminId !== socket.id) return;
@@ -1224,47 +1343,7 @@ io.on('connection', (socket) => {
     
     // Handle different game modes
     if (lobby.gameMode === 'randomized') {
-      // Randomize characters for all players
-      const randomCharacters = [...ROSTER];
-      readyPlayers.forEach((player, idx) => {
-        const randomIndex = Math.floor(Math.random() * randomCharacters.length);
-        const char = randomCharacters.splice(randomIndex, 1)[0];
-        const maxHp = char ? char.hp : 100;
-        
-        // Apply boss ban if enabled
-        if (lobby.matchSettings.bossBanEnabled && char.id === 'wax') {
-          const nonBossChar = randomCharacters.find(c => c.id !== 'wax') || ROSTER[0];
-          player.characterId = nonBossChar.id;
-        } else {
-          player.characterId = char.id;
-        }
-        
-        // Update lobby player character
-        lobby.players[player.id].characterId = player.characterId;
-        
-        players[player.id] = {
-          id: player.id,
-          characterId: player.characterId,
-          x: 412 + (idx * 60) - (readyPlayers.length * 30),
-          y: player.characterId === 'wax' ? 350 : 50,
-          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
-          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
-          color: char ? char.color : '#fff',
-          health: maxHp,
-          maxHealth: maxHp,
-          facing: 'right',
-          velocity: { x: 0, y: 0 },
-          isAttacking: false,
-          isGrounded: false,
-          isGrabbingLedge: false,
-          isStunned: false,
-          isFastFalling: false,
-          score: 0,
-          speedMult: char ? char.speedMult : 1.0
-        };
-      });
-    } else if (lobby.gameMode === 'roster_choice') {
-      // Roster Choice - use selected characters (already set by players)
+      // Randomized: Start with selected characters, change on death/kill
       readyPlayers.forEach((player, idx) => {
         const char = ROSTER.find(c => c.id === player.characterId);
         const maxHp = char ? char.hp : 100;
@@ -1289,6 +1368,65 @@ io.on('connection', (socket) => {
           score: 0,
           speedMult: char ? char.speedMult : 1.0
         };
+      });
+    } else if (lobby.gameMode === 'roster_choice') {
+      // Roster Choice - use first character from roster
+      readyPlayers.forEach((player, idx) => {
+        const roster = player.rosterChoice || [];
+        if (roster.length === 0) {
+          // Fallback to selected character if no roster
+          const char = ROSTER.find(c => c.id === player.characterId);
+          const maxHp = char ? char.hp : 100;
+          
+          players[player.id] = {
+            id: player.id,
+            characterId: player.characterId,
+            x: 412 + (idx * 60) - (readyPlayers.length * 30),
+            y: player.characterId === 'wax' ? 350 : 50,
+            width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
+            height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+            color: char ? char.color : '#fff',
+            health: maxHp,
+            maxHealth: maxHp,
+            facing: 'right',
+            velocity: { x: 0, y: 0 },
+            isAttacking: false,
+            isGrounded: false,
+            isGrabbingLedge: false,
+            isStunned: false,
+            isFastFalling: false,
+            score: 0,
+            speedMult: char ? char.speedMult : 1.0,
+            currentRosterIndex: 0
+          };
+        } else {
+          // Use first character from roster
+          const firstCharId = roster[0];
+          const char = ROSTER.find(c => c.id === firstCharId);
+          const maxHp = char ? char.hp : 100;
+          
+          players[player.id] = {
+            id: player.id,
+            characterId: firstCharId,
+            x: 412 + (idx * 60) - (readyPlayers.length * 30),
+            y: firstCharId === 'wax' ? 350 : 50,
+            width: firstCharId === 'wax' ? 100 : firstCharId === 'mirage' ? 12 : firstCharId === 'coco' ? 40 : 50,
+            height: firstCharId === 'wax' ? 120 : firstCharId === 'mirage' ? 40 : firstCharId === 'coco' ? 65 : 50,
+            color: char ? char.color : '#fff',
+            health: maxHp,
+            maxHealth: maxHp,
+            facing: 'right',
+            velocity: { x: 0, y: 0 },
+            isAttacking: false,
+            isGrounded: false,
+            isGrabbingLedge: false,
+            isStunned: false,
+            isFastFalling: false,
+            score: 0,
+            speedMult: char ? char.speedMult : 1.0,
+            currentRosterIndex: 0
+          };
+        }
       });
     } else if (lobby.gameMode === 'chaos_rounds') {
       // Chaos Rounds - same as FFA but with chaos effects
@@ -1896,6 +2034,18 @@ io.on('connection', (socket) => {
                   const tempX = player.x, tempY = player.y;
                   player.x = farthest.x; player.y = farthest.y;
                   farthest.x = tempX; farthest.y = tempY;
+                  
+                  // Ensure positions are valid (not below ground)
+                  const groundLevel = 450;
+                  if (player.y > groundLevel) player.y = groundLevel - player.height;
+                  if (farthest.y > groundLevel) farthest.y = groundLevel - farthest.height;
+                  
+                  // Reset velocity to prevent falling through
+                  player.velocity = { x: 0, y: 0 };
+                  farthest.velocity = { x: 0, y: 0 };
+                  player.isGrounded = true;
+                  farthest.isGrounded = true;
+                  
                   io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
                   io.emit('forcePosition', { id: farthest.id, x: farthest.x, y: farthest.y });
                   
