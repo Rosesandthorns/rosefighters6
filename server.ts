@@ -614,7 +614,6 @@ setInterval(() => {
         let minDist = 9999;
         for (const player of Object.values(players)) {
             if (player.id === drone.ownerId) continue;
-            if (player.characterId === 'rica') continue;
             const dist = Math.hypot(player.x - drone.x, player.y - drone.y);
             if (dist < minDist) {
                 minDist = dist;
@@ -666,7 +665,7 @@ setInterval(() => {
         
         for (const player of Object.values(players)) {
             if (player.id === drone.ownerId) continue;
-            if (player.characterId === 'rica') continue;
+            if (player.id === drone.ownerId) continue;
             
             const radius = drone.type === 'A' ? 5 : (drone.type === 'B' ? 8 : (drone.type === 'C' ? 10 : 10));
             if (drone.x > player.x - radius && drone.x < player.x + player.width + radius &&
