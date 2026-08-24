@@ -2052,23 +2052,13 @@ export default function GameCanvas() {
                   state === 'attack2'  ? '/Coco/CocoAttack2.gif' :
                                         '/Coco/CocoIdle.gif';
 
-                // Hitbox is from 38,115 to 78,50 on the image (assuming top left is 0,0)
-                // So hitbox width = 78-38 = 40, height = 115-50 = 65
-                // The sprite coordinates indicate: hitbox top-left at (38,50), bottom-right at (78,115)
-                // We need to position the sprite so the hitbox aligns with the player position
-                const originalSpriteHeight = 115;
-                const originalSpriteWidth = 78; // Based on the rightmost coordinate
-                const drawH = 90; // Make sprite larger for better visibility
-                const spriteScale = drawH / originalSpriteHeight;
-                const drawW = originalSpriteWidth * spriteScale;
-                
-                // The hitbox on the sprite starts at x=38, y=50
-                // We need to offset the sprite so that the hitbox aligns with player.x, player.y
-                const hitboxXOffset = 38 * spriteScale;
-                const hitboxYOffset = 50 * spriteScale;
-                
-                const left = p.x - hitboxXOffset;
-                const top = p.y - hitboxYOffset;
+                // Use same approach as Pinedo/Mirage for consistent positioning
+                const drawH = 62; // Consistent with other characters
+                const drawW = drawH; // Square aspect ratio
+                const bottom = p.y + p.height + 4;
+                const top = bottom - drawH;
+                const playerCenterX = p.x + p.width / 2;
+                const left = playerCenterX - drawW / 2;
 
                 return (
                   <img
