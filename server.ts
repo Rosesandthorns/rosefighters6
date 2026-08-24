@@ -1331,7 +1331,18 @@ io.on('connection', (socket) => {
     
     if (lobby.gameState !== 'LOBBY') return;
     
-    const readyPlayers = Object.values(lobby.players).filter(p => !p.isSpectator && p.characterId && p.isReady);
+    // Check ready players based on game mode
+    let readyPlayers;
+    if (lobby.gameMode === 'randomized') {
+      // Randomized: just need to be ready, no character selection
+      readyPlayers = Object.values(lobby.players).filter(p => !p.isSpectator && p.isReady);
+    } else if (lobby.gameMode === 'roster_choice') {
+      // Roster Choice: need roster and be ready
+      readyPlayers = Object.values(lobby.players).filter(p => !p.isSpectator && p.rosterChoice && p.rosterChoice.length === 5 && p.isReady);
+    } else {
+      // FFA and Chaos: need character and be ready
+      readyPlayers = Object.values(lobby.players).filter(p => !p.isSpectator && p.characterId && p.isReady);
+    }
     
     if (readyPlayers.length < 2) {
       socket.emit('matchStartError', { message: 'Need at least 2 ready players' });
@@ -1343,18 +1354,19 @@ io.on('connection', (socket) => {
     
     // Handle different game modes
     if (lobby.gameMode === 'randomized') {
-      // Randomized: Start with selected characters, change on death/kill
+      // Randomized: Assign random characters at match start
       readyPlayers.forEach((player, idx) => {
-        const char = ROSTER.find(c => c.id === player.characterId);
+        const randomChar = ROSTER[Math.floor(Math.random() * ROSTER.length)];
+        const char = ROSTER.find(c => c.id === randomChar.id);
         const maxHp = char ? char.hp : 100;
         
         players[player.id] = {
           id: player.id,
-          characterId: player.characterId,
+          characterId: randomChar.id,
           x: 412 + (idx * 60) - (readyPlayers.length * 30),
-          y: player.characterId === 'wax' ? 350 : 50,
-          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
-          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+          y: randomChar.id === 'wax' ? 350 : 50,
+          width: randomChar.id === 'wax' ? 100 : randomChar.id === 'mirage' ? 12 : randomChar.id === 'coco' ? 40 : 50,
+          height: randomChar.id === 'wax' ? 120 : randomChar.id === 'mirage' ? 40 : randomChar.id === 'coco' ? 65 : 50,
           color: char ? char.color : '#fff',
           health: maxHp,
           maxHealth: maxHp,

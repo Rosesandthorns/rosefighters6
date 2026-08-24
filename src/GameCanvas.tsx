@@ -2118,8 +2118,16 @@ export default function GameCanvas() {
             </div>
           )}
 
-          {/* Character Selection Grid (for non-roster modes) */}
-          {currentLobby?.gameMode !== 'roster_choice' && (
+          {/* Randomized Mode Info */}
+          {currentLobby?.gameMode === 'randomized' && currentLobby?.gameState === 'LOBBY' && (
+            <div className="bg-black/40 rounded-xl p-6 border border-purple-500/30 mb-8">
+              <h2 className="text-xl font-bold text-white mb-4">Randomized Mode</h2>
+              <p className="text-purple-300 text-sm">Characters will be randomly assigned at match start and change on death/kill. No character selection needed!</p>
+            </div>
+          )}
+
+          {/* Character Selection Grid (for FFA, Chaos, and Roster Choice modes) */}
+          {currentLobby?.gameMode !== 'randomized' && currentLobby?.gameState === 'LOBBY' && (
           <div className="flex flex-col gap-12 mb-12">
             {[...new Set(ROSTER.map(c => c.category))].map(category => (
               <div key={category}>
@@ -2203,10 +2211,16 @@ export default function GameCanvas() {
 
           <div className="flex justify-center gap-4 mt-auto">
             <button
-              disabled={currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5) : (!me?.characterId || me?.isSpectator)}
+              disabled={
+                currentLobby?.gameMode === 'randomized' ? me?.isSpectator :
+                currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5 || me?.isSpectator) :
+                (!me?.characterId || me?.isSpectator)
+              }
               onClick={() => socket?.emit('toggleReady')}
               className={`px-12 py-4 rounded-full font-black text-2xl tracking-tighter italic uppercase transition-all
-                ${currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
+                ${currentLobby?.gameMode === 'randomized' ? (me?.isSpectator) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
+                  isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white' :
+                currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5 || me?.isSpectator) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
                   isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white' :
                   (!me?.characterId || me?.isSpectator) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
                   isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}
