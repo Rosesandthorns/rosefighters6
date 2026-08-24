@@ -334,14 +334,17 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
                 target.color = char ? char.color : '#fff';
                 target.currentRosterIndex = nextIndex;
                 io.emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
+                io.emit('playerRespawned', target);
             } else {
                 // No more characters - eliminate player
                 target.isEliminated = true;
+                delete players[target.id];
                 io.emit('playerEliminated', { id: target.id });
             }
+        } else {
+            // Normal respawn for other modes
+            io.emit('playerRespawned', target);
         }
-        
-        io.emit('playerRespawned', target);
     } else {
         io.emit('playerHealthChanged', { id: target.id, health: target.health });
     }
