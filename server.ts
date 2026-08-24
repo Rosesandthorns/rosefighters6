@@ -1518,7 +1518,20 @@ io.on('connection', (socket) => {
     
     player.lastActive = Date.now();
     
-    if (player.characterId) {
+    // Check if player can be ready based on game mode
+    let canBeReady = false;
+    if (lobby.gameMode === 'randomized') {
+      // Randomized: no character selection needed
+      canBeReady = true;
+    } else if (lobby.gameMode === 'roster_choice') {
+      // Roster Choice: need full roster
+      canBeReady = player.rosterChoice && player.rosterChoice.length === 5;
+    } else {
+      // FFA and Chaos: need character selection
+      canBeReady = !!player.characterId;
+    }
+    
+    if (canBeReady) {
       player.isReady = !player.isReady;
       io.to(lobby.id).emit('lobbyUpdate', lobby);
     }
