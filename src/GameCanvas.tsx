@@ -152,6 +152,19 @@ export default function GameCanvas() {
   const particlesRef = useRef<Particle[]>([]);
   const kaelenMovingRef = useRef<boolean>(false);
 
+  // ── Tech system refs ──────────────────────────────────────────────────────
+  const techWindowRef    = useRef<number>(0);      // frames left in tech window after landing
+  const techMissRef      = useRef<number>(0);      // frames of tech-miss vulnerable state
+  const techRollDirRef   = useRef<0|1|-1>(0);      // 0=no roll, 1=right, -1=left
+  const diRef            = useRef<{x:number,y:number}>({x:0,y:0}); // DI direction
+  const prevFacingRef    = useRef<'left'|'right'>('right');
+  const dashCancelRef    = useRef<number>(0);      // frames of dash cancel brake
+  const jumpCancelRef    = useRef<boolean>(false); // buffered jump cancel
+  const wasInAirRef      = useRef<boolean>(false); // for ledge tech detection
+  // Mobile virtual input (mirrors keysRef/mouseRef)
+  const mobileKeysRef    = useRef<Record<string,boolean>>({});
+  const mobileMouseRef   = useRef<Record<number,boolean>>({});
+
   // Pinedo sprite images — loaded once
   const pinedoImgs = useRef<Record<string, HTMLImageElement>>({});
   // Mirage sprite images — loaded once
@@ -213,6 +226,7 @@ export default function GameCanvas() {
   // Mirage trail: last N positions for silhouette effect
   const mirageTrailRef = useRef<{x:number,y:number,facing:'left'|'right',alpha:number}[]>([]);
   const [mirageOverlay, setMirageOverlay] = useState<{id:string,x:number,y:number,state:string,facing:'left'|'right',trail:{x:number,y:number,facing:'left'|'right',alpha:number}[]}[]>([]);
+  const [isMobile] = useState(() => /Android|iPhone|iPad|iPod|Touch/i.test(navigator.userAgent) || window.matchMedia('(pointer:coarse)').matches);
 
   useEffect(() => {
     // Connect to same host, forcing websocket transport to avoid Cloud Run load balancing / polling issues
@@ -277,11 +291,20 @@ export default function GameCanvas() {
     newSocket.on('applyKnockback', (data: { vx: number, vy: number, stunFrames: number }) => {
       const myPlayer = playersRef.current[newSocket.id as string];
       if (myPlayer) {
-        myPlayer.velocity.x = data.vx;
-        myPlayer.velocity.y = data.vy;
+        // Directional Influence — player can angle knockback by holding a direction
+        const di = diRef.current;
+        const diStrength = 0.18; // 18% influence on trajectory
+        const vx = data.vx + di.x * Math.abs(data.vx) * diStrength;
+        const vy = data.vy + di.y * Math.abs(data.vy) * diStrength;
+        myPlayer.velocity.x = vx;
+        myPlayer.velocity.y = vy;
         stunTimerRef.current = data.stunFrames;
-        myPlayer.isStunned = true;
+        myPlayer.isStunned = data.stunFrames > 0;
         myPlayer.isGrabbingLedge = false;
+        // Open tech window on any knockback that will land us
+        if (data.stunFrames > 5 && data.vy > 0) {
+          techWindowRef.current = 20; // 20 frame window to tech
+        }
       }
     });
 
@@ -576,8 +599,8 @@ export default function GameCanvas() {
       const myPlayer = playersRef.current[myId];
       if (!myPlayer) return;
 
-      const keys = keysRef.current;
-      const mouseButtons = mouseRef.current;
+      const keys = { ...keysRef.current, ...mobileKeysRef.current };
+      const mouseButtons = { ...mouseRef.current, ...mobileMouseRef.current };
 
       // Handle Stun
       if (stunTimerRef.current > 0 || myPlayer.grabbedByPlayerId) {
@@ -795,6 +818,35 @@ export default function GameCanvas() {
               }
           }
 
+          // ── Tech system tick ──────────────────────────────────────────────
+          // Update DI from held direction
+          diRef.current = {
+            x: (keys['ArrowRight'] || keys['KeyD']) ? 1 : (keys['ArrowLeft'] || keys['KeyA']) ? -1 : 0,
+            y: (keys['ArrowDown']  || keys['KeyS']) ? 1 : (keys['ArrowUp']   || keys['KeyW']) ? -1 : 0,
+          };
+          if (techWindowRef.current > 0) techWindowRef.current--;
+          if (techMissRef.current > 0) { techMissRef.current--; myPlayer.isStunned = true; }
+          if (dashCancelRef.current > 0) dashCancelRef.current--;
+
+          // Dash cancel — tap opposite direction to stop immediately
+          const prevFacing = prevFacingRef.current;
+          const curFacing  = myPlayer.facing;
+          if (prevFacing !== curFacing && myPlayer.isGrounded && dashCancelRef.current === 0) {
+            myPlayer.velocity.x = 0;
+            dashCancelRef.current = 8; // 8 frame cooldown before next cancel
+          }
+          prevFacingRef.current = curFacing;
+
+          // Jump cancel — buffer jump during attack startup
+          if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && myPlayer.isAttacking && myPlayer.isGrounded && attackTimerRef.current > 10) {
+            jumpCancelRef.current = true;
+          }
+          if (jumpCancelRef.current && !myPlayer.isAttacking && myPlayer.isGrounded) {
+            jumpCancelRef.current = false;
+            myPlayer.velocity.y = JUMP_FORCE;
+            myPlayer.isGrounded = false;
+          }
+
           // Abilities
           const isOakwell = myPlayer.characterId === 'oakwell';
           const isNeddy = myPlayer.characterId === 'neddy';
@@ -862,11 +914,20 @@ export default function GameCanvas() {
               myPlayer.y >= ledgeY - 40 &&
               myPlayer.y <= ledgeY + 10
           ) {
-              myPlayer.isGrabbingLedge = true;
-              myPlayer.facing = 'right';
-              myPlayer.x = leftLedgeX - myPlayer.width;
-              myPlayer.y = ledgeY - 10;
-              myPlayer.velocity = {x: 0, y: 0};
+              // Ledge tech: hold away (left) to snap up onto platform
+              if (keys['ArrowLeft'] || keys['KeyA']) {
+                  myPlayer.x = leftLedgeX - myPlayer.width + 2;
+                  myPlayer.y = ledgeY - myPlayer.height;
+                  myPlayer.velocity = { x: -2, y: 0 };
+                  ledgeGrabCooldownRef.current = 20;
+                  spawnSlamParticles(myPlayer.x + myPlayer.width/2, myPlayer.y + myPlayer.height, '#818cf8');
+              } else {
+                  myPlayer.isGrabbingLedge = true;
+                  myPlayer.facing = 'right';
+                  myPlayer.x = leftLedgeX - myPlayer.width;
+                  myPlayer.y = ledgeY - 10;
+                  myPlayer.velocity = {x: 0, y: 0};
+              }
           }
           // Right Ledge
           else if (
@@ -875,11 +936,20 @@ export default function GameCanvas() {
               myPlayer.y >= ledgeY - 40 &&
               myPlayer.y <= ledgeY + 10
           ) {
-              myPlayer.isGrabbingLedge = true;
-              myPlayer.facing = 'left';
-              myPlayer.x = rightLedgeX;
-              myPlayer.y = ledgeY - 10;
-              myPlayer.velocity = {x: 0, y: 0};
+              // Ledge tech: hold away (right) to snap up onto platform
+              if (keys['ArrowRight'] || keys['KeyD']) {
+                  myPlayer.x = rightLedgeX - 2;
+                  myPlayer.y = ledgeY - myPlayer.height;
+                  myPlayer.velocity = { x: 2, y: 0 };
+                  ledgeGrabCooldownRef.current = 20;
+                  spawnSlamParticles(myPlayer.x + myPlayer.width/2, myPlayer.y + myPlayer.height, '#818cf8');
+              } else {
+                  myPlayer.isGrabbingLedge = true;
+                  myPlayer.facing = 'left';
+                  myPlayer.x = rightLedgeX;
+                  myPlayer.y = ledgeY - 10;
+                  myPlayer.velocity = {x: 0, y: 0};
+              }
           }
       }
 
@@ -973,6 +1043,34 @@ export default function GameCanvas() {
 
       const wasGrounded = myPlayer.isGrounded;
       myPlayer.isGrounded = grounded;
+      wasInAirRef.current = !wasGrounded;
+
+      // ── Tech on landing ──────────────────────────────────────────────────
+      if (grounded && !wasGrounded && myPlayer.isStunned) {
+        if (techWindowRef.current > 0) {
+          // Successful tech — cancel landing lag
+          const rollDir = (keys['ArrowRight'] || keys['KeyD']) ? 1 : (keys['ArrowLeft'] || keys['KeyA']) ? -1 : 0;
+          stunTimerRef.current = 0;
+          myPlayer.isStunned = false;
+          techWindowRef.current = 0;
+          if (rollDir !== 0) {
+            // Tech roll — brief invincibility + movement
+            myPlayer.velocity.x = rollDir * MOVE_SPEED * 1.8;
+            myPlayer.facing = rollDir === 1 ? 'right' : 'left';
+            myPlayer.activeEffects = myPlayer.activeEffects || {};
+            myPlayer.activeEffects['techRoll'] = Date.now() + 400;
+            spawnSlamParticles(myPlayer.x + myPlayer.width/2, myPlayer.y + myPlayer.height, '#818cf8');
+          } else {
+            // In-place tech — just cancel stun with a small neutral burst
+            myPlayer.velocity.x *= 0.3;
+            spawnSlamParticles(myPlayer.x + myPlayer.width/2, myPlayer.y + myPlayer.height, '#a5f3fc');
+          }
+        } else {
+          // Tech miss — extra 30 frames vulnerable on ground
+          techMissRef.current = 30;
+          spawnSlamParticles(myPlayer.x + myPlayer.width/2, myPlayer.y + myPlayer.height, '#f87171');
+        }
+      }
       
       // Ground Slam detection
       if (grounded && !wasGrounded) {
@@ -1512,6 +1610,11 @@ export default function GameCanvas() {
             ctx.fillStyle = 'rgba(74,222,128,0.4)';
             ctx.fillRect(player.x, player.y, player.width, player.height);
         }
+        // Tech roll i-frames flash (indigo)
+        if (player.activeEffects?.['techRoll'] && player.activeEffects['techRoll'] > Date.now()) {
+            ctx.fillStyle = 'rgba(129,140,248,0.45)';
+            ctx.fillRect(player.x - 4, player.y - 4, player.width + 8, player.height + 8);
+        }
 
         ctx.globalAlpha = 1.0;
       });
@@ -1612,7 +1715,7 @@ export default function GameCanvas() {
             {[...new Set(ROSTER.map(c => c.category))].map(category => (
               <div key={category}>
                 <h2 className="text-2xl font-bold italic text-white mb-6 border-b border-white/10 pb-2">{category}</h2>
-                <div className="grid grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
                   {ROSTER.filter(c => c.category === category).map((char) => {
                      const playersArray = Object.values(lobbyPlayers) as LobbyPlayer[];
                const playerOwner = playersArray.find(p => p.characterId === char.id);
@@ -1716,13 +1819,16 @@ export default function GameCanvas() {
         <div className="absolute top-1/4 left-1/4 w-48 h-2 bg-indigo-500/30 rounded-full blur-sm pointer-events-none"></div>
         <div className="absolute top-1/4 right-1/4 w-48 h-2 bg-purple-500/30 rounded-full blur-sm pointer-events-none"></div>
         
-        <div className="relative z-10 shadow-[0_10px_40px_rgba(0,0,0,0.8)] rounded-xl border-t border-white/10 overflow-hidden bg-black/60">
+        <div className="relative z-10 shadow-[0_10px_40px_rgba(0,0,0,0.8)] rounded-xl border-t border-white/10 overflow-hidden bg-black/60"
+          style={isMobile ? { width: '100vw', maxWidth: '100vw' } : {}}>
             <canvas
               ref={canvasRef}
               width={1024}
               height={600}
               className="block"
-              style={{ imageRendering: 'pixelated' }}
+              style={isMobile
+                ? { imageRendering: 'pixelated', width: '100vw', height: 'auto' }
+                : { imageRendering: 'pixelated' }}
               onContextMenu={(e) => e.preventDefault()}
             />
             {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
@@ -1885,6 +1991,67 @@ export default function GameCanvas() {
           );
         })}
       </footer>
+
+      {/* ── Mobile Controls ─────────────────────────────────────────────── */}
+      {isMobile && appState === 'PLAYING' && (
+        <div className="relative z-30 flex flex-col gap-2 px-4 pb-4 shrink-0 select-none">
+          {/* D-pad row */}
+          <div className="flex justify-between items-end">
+            {/* Left side: movement */}
+            <div className="flex items-center gap-2">
+              <button
+                className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
+                onTouchStart={() => { mobileKeysRef.current['ArrowLeft'] = true; }}
+                onTouchEnd={() => { mobileKeysRef.current['ArrowLeft'] = false; }}
+              >◀</button>
+              <div className="flex flex-col gap-2">
+                <button
+                  className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
+                  onTouchStart={() => { mobileKeysRef.current['Space'] = true; }}
+                  onTouchEnd={() => { mobileKeysRef.current['Space'] = false; }}
+                >▲</button>
+                <button
+                  className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
+                  onTouchStart={() => { mobileKeysRef.current['ArrowDown'] = true; }}
+                  onTouchEnd={() => { mobileKeysRef.current['ArrowDown'] = false; }}
+                >▼</button>
+              </div>
+              <button
+                className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 active:bg-white/25 flex items-center justify-center text-2xl"
+                onTouchStart={() => { mobileKeysRef.current['ArrowRight'] = true; }}
+                onTouchEnd={() => { mobileKeysRef.current['ArrowRight'] = false; }}
+              >▶</button>
+            </div>
+            {/* Right side: abilities */}
+            <div className="flex flex-col gap-2 items-end">
+              <div className="flex gap-2">
+                <button
+                  className="w-16 h-16 rounded-2xl bg-indigo-600/60 border border-indigo-400/40 active:bg-indigo-400/80 flex items-center justify-center font-black text-white text-sm"
+                  onTouchStart={() => { mobileMouseRef.current[2] = true; }}
+                  onTouchEnd={() => { mobileMouseRef.current[2] = false; }}
+                >AB3</button>
+                <button
+                  className="w-16 h-16 rounded-2xl bg-purple-600/60 border border-purple-400/40 active:bg-purple-400/80 flex items-center justify-center font-black text-white text-sm"
+                  onTouchStart={() => { mobileMouseRef.current[1] = true; }}
+                  onTouchEnd={() => { mobileMouseRef.current[1] = false; }}
+                >AB2</button>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="w-16 h-16 rounded-2xl bg-violet-600/60 border border-violet-400/40 active:bg-violet-400/80 flex items-center justify-center font-black text-white text-sm"
+                  onTouchStart={e => { e.preventDefault(); mobileMouseRef.current[0] = true; }}
+                  onTouchEnd={() => { mobileMouseRef.current[0] = false; }}
+                >ATK</button>
+                <button
+                  className="w-20 h-16 rounded-2xl bg-blue-600/60 border border-blue-400/40 active:bg-blue-400/80 flex items-center justify-center font-black text-white text-sm"
+                  onTouchStart={() => { mobileMouseRef.current[1] = true; }}
+                  onTouchEnd={() => { mobileMouseRef.current[1] = false; }}
+                >AB2</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-white/5 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 pointer-events-none z-20">
         <span className="text-[9px] uppercase tracking-widest text-gray-400">Server Status:</span>
