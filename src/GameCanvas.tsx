@@ -2870,13 +2870,22 @@ export default function GameCanvas() {
               {/* OldTV objects left behind by Phantasma */}
               {playersList.filter(p => p.characterId === 'phantasma' && p.phantasmaOldTvs).flatMap(p =>
                 Object.values(p.phantasmaOldTvs || {}).map((tv: any) => {
-                  // OldTV object corresponds to the TV Form bounding box (width: 45, height: 89)
-                  // Offset in 128x128 TV sprite is x=41, y=20
-                  const scale = tv.height / 89;
-                  const drawW = 128 * scale;
-                  const drawH = 128 * scale;
-                  const left = tv.x - 41 * scale;
-                  const top = tv.y - 20 * scale;
+                  // OldTV rendered at 62px (exact same visual size as Phantasma TV Form)
+                  const drawH = 62;
+                  const drawW = 62;
+                  const scale = 62 / 128;
+                  const spriteHitboxW = 45 * scale;
+                  const spriteHitboxH = 89 * scale;
+                  const offsetX = 41 * scale;
+                  const offsetY = 20 * scale;
+
+                  const centerX = tv.x + tv.width / 2;
+                  const bottomY = tv.y + tv.height;
+                  const visualBoxLeft = centerX - spriteHitboxW / 2;
+                  const visualBoxTop = bottomY - spriteHitboxH;
+
+                  const left = visualBoxLeft - offsetX;
+                  const top = visualBoxTop - offsetY;
                   return (
                     <img
                       key={'oldtv-' + tv.id}
