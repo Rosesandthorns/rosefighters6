@@ -534,7 +534,7 @@ function getDefaultSettings(gameMode: GameMode): MatchSettings {
 function charWidth(id: string | null | undefined): number {
   if (id === 'wax') return 100;
   if (id === 'mirage') return 12;
-  if (id === 'coco') return 40;
+  if (id === 'coco') return 50;
   if (id === 'orbo') return 17;
   if (id === 'zobo') return 6;
   return 50;
@@ -543,7 +543,7 @@ function charWidth(id: string | null | undefined): number {
 function charHeight(id: string | null | undefined): number {
   if (id === 'wax') return 120;
   if (id === 'mirage') return 40;
-  if (id === 'coco') return 65;
+  if (id === 'coco') return 80;
   if (id === 'orbo') return 44;
   if (id === 'zobo') return 70;
   return 50;

@@ -463,8 +463,8 @@ export default function GameCanvas() {
           player.speedMult = char.speedMult;
           player.maxHealth = char.hp;
           player.health = char.hp;
-          player.width = data.newCharacterId === 'wax' ? 100 : data.newCharacterId === 'mirage' ? 12 : data.newCharacterId === 'coco' ? 40 : 50;
-          player.height = data.newCharacterId === 'wax' ? 120 : data.newCharacterId === 'mirage' ? 40 : data.newCharacterId === 'coco' ? 65 : 50;
+          player.width = data.newCharacterId === 'wax' ? 100 : data.newCharacterId === 'mirage' ? 12 : data.newCharacterId === 'coco' ? 50 : 50;
+          player.height = data.newCharacterId === 'wax' ? 120 : data.newCharacterId === 'mirage' ? 40 : data.newCharacterId === 'coco' ? 80 : 50;
         }
       }
     });
@@ -2573,9 +2573,9 @@ export default function GameCanvas() {
                   state === 'attack2'  ? '/Coco/CocoAttack2.gif' :
                                         '/Coco/CocoIdle.gif';
 
-                // Use same approach as Pinedo/Mirage for consistent positioning
-                const drawH = 62; // Consistent with other characters
-                const drawW = drawH; // Square aspect ratio
+                // Render height: scaled taller for Coco (80px hitbox height)
+                const drawH = 78;
+                const drawW = drawH;
                 const bottom = p.y + p.height + 4;
                 const top = bottom - drawH;
                 const playerCenterX = p.x + p.width / 2;
