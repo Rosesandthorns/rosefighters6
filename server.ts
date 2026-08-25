@@ -864,20 +864,23 @@ setInterval(() => {
                 proj.angle += proj.rotationSpeed;
             }
         } else if (proj.type === 'spider') {
-            // Zobo arm: fast out, then return to spawn point
-            if (proj.life > 45) {
-                // outbound — keep velocity
+            const owner = players[proj.ownerId];
+            if (!owner) {
+                proj.life = -1;
             } else {
-                // returning — head back to spawn point
-                const tx = proj.startX ?? proj.x;
-                const ty = proj.startY ?? proj.y;
-                const dx = tx - proj.x;
-                const dy = ty - proj.y;
-                const len = Math.hypot(dx, dy);
-                if (len < 15) {
-                    // Returned — unstun owner
-                    const owner = players[proj.ownerId];
-                    if (owner) {
+                // Calculate current hand spawn position based on Zobo's facing & position
+                const currentHandX = owner.facing === 'right' ? owner.x + 42 : owner.x - 36;
+                const currentHandY = owner.y + 10;
+
+                if (proj.life > 15) {
+                    // outbound for 15 frames (~300px out)
+                } else {
+                    // returning — head back to Zobo's current hand position
+                    const dx = currentHandX - proj.x;
+                    const dy = currentHandY - proj.y;
+                    const len = Math.hypot(dx, dy);
+                    if (len < 25 || proj.life <= 1) {
+                        // Returned or expired — unstun owner
                         owner.zoboArm1Active = false;
                         owner.zoboArm1ProjId = undefined;
                         owner.zoboState = 'idle';
@@ -885,24 +888,22 @@ setInterval(() => {
                         if (ownerLobby) {
                             io.to(owner.id).emit('clearStun');
                             io.to(ownerLobby.id).emit('playerEffect', { id: owner.id, effect: 'zoboStateChange', state: 'idle' });
+                            io.to(ownerLobby.id).emit('zoboArmUpdate', { ownerId: owner.id, x1: 0, y1: 0, x2: 0, y2: 0, active: false });
                         }
+                        proj.life = -1;
+                    } else {
+                        proj.vx = (dx / len) * 20;
+                        proj.vy = (dy / len) * 20;
                     }
-                    proj.life = -1;
-                } else {
-                    proj.vx = (dx / len) * 22;
-                    proj.vy = (dy / len) * 22;
                 }
-            }
-            // Emit arm tether update so client can draw the line
-            const zoboOwner = players[proj.ownerId];
-            if (zoboOwner) {
-                const ownerLobby = getLobbyByPlayerId(proj.ownerId);
-                if (ownerLobby) {
-                    const spawnX = proj.startX ?? proj.x;
-                    const spawnY = proj.startY ?? proj.y;
-                    io.to(ownerLobby.id).emit('zoboArmUpdate', {
-                        ownerId: proj.ownerId, x1: spawnX, y1: spawnY, x2: proj.x, y2: proj.y, active: true
-                    });
+                // Emit arm tether update so client can draw line from current hand to projectile
+                if (proj.life > 0) {
+                    const ownerLobby = getLobbyByPlayerId(proj.ownerId);
+                    if (ownerLobby) {
+                        io.to(ownerLobby.id).emit('zoboArmUpdate', {
+                            ownerId: proj.ownerId, x1: currentHandX, y1: currentHandY, x2: proj.x, y2: proj.y, active: true
+                        });
+                    }
                 }
             }
         } else if (proj.type === 'web') {
@@ -2062,36 +2063,50 @@ io.on('connection', (socket) => {
               const now2 = Date.now();
               player.zoboArm1Active = true;
               player.zoboState = 'attack1start';
-              // Zobo spawn offset: hitbox topleft + (42, 52)
-              const spawnX = player.x + 42;
-              const spawnY = player.y + 52;
-              player.zoboArm1SpawnX = spawnX;
-              player.zoboArm1SpawnY = spawnY;
-              // Stun Zobo for entire duration of attack
+              const handX = player.facing === 'right' ? player.x + 42 : player.x - 36;
+              const handY = player.y + 10;
+              player.zoboArm1SpawnX = handX;
+              player.zoboArm1SpawnY = handY;
+              // Stun Zobo during attack (cleared when projectile returns or via safety timeout)
               io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 9999 });
               const lobby2 = getLobbyByPlayerId(player.id);
               if (lobby2) io.to(lobby2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'attack1start' });
-              // After windup animation (~500ms), fire the spider projectile
+              // After windup animation (~250ms), fire the spider projectile
               setTimeout(() => {
                   if (!players[player.id] || !players[player.id].zoboArm1Active) return;
                   const pid = 'proj_' + entityIdCounter++;
-                  const spX = players[player.id].zoboArm1SpawnX ?? players[player.id].x + 42;
-                  const spY = players[player.id].zoboArm1SpawnY ?? players[player.id].y + 52;
+                  const p = players[player.id];
+                  const spX = p.facing === 'right' ? p.x + 42 : p.x - 36;
+                  const spY = p.y + 10;
                   projectiles[pid] = {
                       id: pid, type: 'spider',
                       x: spX, y: spY,
                       startX: spX, startY: spY,
-                      vx: players[player.id].facing === 'right' ? 22 : -22,
+                      vx: p.facing === 'right' ? 20 : -20,
                       vy: 0,
                       ownerId: player.id,
                       damage: 20,
-                      life: 90
+                      life: 30 // 15 frames out, 15 frames back
                   };
-                  players[player.id].zoboArm1ProjId = pid;
-                  players[player.id].zoboState = 'attack1mid';
+                  p.zoboArm1ProjId = pid;
+                  p.zoboState = 'attack1mid';
                   const l2 = getLobbyByPlayerId(player.id);
                   if (l2) io.to(l2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'attack1mid' });
-              }, 500);
+              }, 250);
+
+              // Fail-safe timeout: un-stun Zobo after 1.5 seconds if projectile gets stuck or deleted
+              setTimeout(() => {
+                  if (players[player.id] && players[player.id].zoboArm1Active) {
+                      players[player.id].zoboArm1Active = false;
+                      players[player.id].zoboState = 'idle';
+                      io.to(player.id).emit('clearStun');
+                      const l2 = getLobbyByPlayerId(player.id);
+                      if (l2) {
+                          io.to(l2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'idle' });
+                          io.to(l2.id).emit('zoboArmUpdate', { ownerId: player.id, x1: 0, y1: 0, x2: 0, y2: 0, active: false });
+                      }
+                  }
+              }, 1500);
           } else if (data.ability === 2) {
               if (player.zoboArm1Active || player.zoboState === 'attack3') {
                   socket.emit('abilityCooldown', { ability: 2, frames: 15 }); return;
