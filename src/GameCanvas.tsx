@@ -1755,11 +1755,19 @@ export default function GameCanvas() {
               ctx.fillRect(-5, -3, 10, 6);
               ctx.restore();
           } else if (proj.type === 'spider') {
-              ctx.fillStyle = '#ffffff';
-              ctx.beginPath(); ctx.arc(proj.x, proj.y, 8, 0, Math.PI * 2); ctx.fill();
+              if (zoboImgs.current['projectile']?.complete && zoboImgs.current['projectile']?.naturalWidth) {
+                  ctx.drawImage(zoboImgs.current['projectile'], proj.x - 16, proj.y - 16, 32, 32);
+              } else {
+                  ctx.fillStyle = '#ffffff';
+                  ctx.beginPath(); ctx.arc(proj.x, proj.y, 8, 0, Math.PI * 2); ctx.fill();
+              }
           } else if (proj.type === 'web') {
-              ctx.fillStyle = '#cbd5e1';
-              ctx.beginPath(); ctx.arc(proj.x, proj.y, 10, 0, Math.PI * 2); ctx.fill();
+              if (zoboImgs.current['projectile2']?.complete && zoboImgs.current['projectile2']?.naturalWidth) {
+                  ctx.drawImage(zoboImgs.current['projectile2'], proj.x - 16, proj.y - 16, 32, 32);
+              } else {
+                  ctx.fillStyle = '#cbd5e1';
+                  ctx.beginPath(); ctx.arc(proj.x, proj.y, 10, 0, Math.PI * 2); ctx.fill();
+              }
           }
       });
 
@@ -2625,12 +2633,18 @@ export default function GameCanvas() {
                 else if (state === 'attack2') src = '/Zobo/ZoboAttack2.gif';
                 else if (state === 'attack3') src = '/Zobo/ZoboIdle.gif';
 
-                const drawH = 80;
-                const drawW = drawH;
-                const bottom = p.y + p.height + 4;
-                const top = bottom - drawH;
-                const playerCenterX = p.x + p.width / 2;
-                const left = playerCenterX - drawW / 2;
+                // Sprite is 128x128 source coordinates.
+                // Hitbox relative to sprite 128x128 (facing left):
+                // X: 61..67 (width = 6, offset from left = 61)
+                // Y: 52..122 (height = 70, offset from top = 52)
+                // Scale factor: scale 128px sprite so hitbox height (70px in sprite) = p.height (70px in world) -> scale = 1.0 (128x128px)
+                const spriteW = 128;
+                const spriteH = 128;
+
+                // Facing left: top-left of sprite is (p.x - 61, p.y - 52)
+                // Facing right: mirrored horizontally around player center
+                const left = p.facing === 'left' ? p.x - 61 : p.x - (128 - 67);
+                const top = p.y - 52;
                 const isRegatherGlow = (p.activeEffects?.['zoboRegather'] || 0) > Date.now();
 
                 return (
@@ -2641,7 +2655,7 @@ export default function GameCanvas() {
                     style={{
                       position: 'absolute',
                       left, top,
-                      width: drawW, height: drawH,
+                      width: spriteW, height: spriteH,
                       imageRendering: 'pixelated',
                       transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
                       transformOrigin: 'center center',

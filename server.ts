@@ -869,8 +869,8 @@ setInterval(() => {
                 proj.life = -1;
             } else {
                 // Calculate current hand spawn position based on Zobo's facing & position
-                const currentHandX = owner.facing === 'right' ? owner.x + 42 : owner.x - 36;
-                const currentHandY = owner.y + 10;
+                const currentHandX = owner.facing === 'left' ? owner.x - 19 : owner.x + 19;
+                const currentHandY = owner.y;
 
                 if (proj.life > 15) {
                     // outbound for 15 frames (~300px out)
@@ -2063,8 +2063,8 @@ io.on('connection', (socket) => {
               const now2 = Date.now();
               player.zoboArm1Active = true;
               player.zoboState = 'attack1start';
-              const handX = player.facing === 'right' ? player.x + 42 : player.x - 36;
-              const handY = player.y + 10;
+              const handX = player.facing === 'left' ? player.x - 19 : player.x + 19;
+              const handY = player.y;
               player.zoboArm1SpawnX = handX;
               player.zoboArm1SpawnY = handY;
               // Stun Zobo during attack (cleared when projectile returns or via safety timeout)
@@ -2076,8 +2076,8 @@ io.on('connection', (socket) => {
                   if (!players[player.id] || !players[player.id].zoboArm1Active) return;
                   const pid = 'proj_' + entityIdCounter++;
                   const p = players[player.id];
-                  const spX = p.facing === 'right' ? p.x + 42 : p.x - 36;
-                  const spY = p.y + 10;
+                  const spX = p.facing === 'left' ? p.x - 19 : p.x + 19;
+                  const spY = p.y;
                   projectiles[pid] = {
                       id: pid, type: 'spider',
                       x: spX, y: spY,
