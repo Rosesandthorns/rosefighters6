@@ -2813,27 +2813,19 @@ export default function GameCanvas() {
                   else src = '/Phantasma/PhantasmaGhostIdle.gif';
                 }
 
-                // Sprite canvas size = 128x128 for both forms; hitbox is embedded differently
-                // TV: hitbox offset from sprite top-left: x+41 y+20, w=45, h=89
-                // Ghost: hitbox starts at x+77 y+15, w=16, h=109; but images should line up at 0,0
-                const spriteW = 128;
-                const spriteH = 128;
-                // Position sprite so hitbox aligns with p.x, p.y
-                let left: number, top: number;
-                if (form === 'tv') {
-                  // Facing left: sprite top-left at (p.x - 41, p.y - 20)
-                  left = p.facing === 'left' ? p.x - 41 : p.x - (128 - 86);
-                  top = p.y - 20;
-                } else {
-                  // Ghost: sprite top-left at (p.x - 77, p.y - 15)
-                  left = p.facing === 'left' ? p.x - 77 : p.x - (128 - 93);
-                  top = p.y - 15;
-                }
-                // TV form sprites are drawn facing right by default, flip for left direction
-                // Ghost sprites are drawn facing left by default, flip for right direction
-                const flipTV = p.facing === 'left' ? 'none' : 'scaleX(-1)';
-                const flipGhost = p.facing === 'right' ? 'scaleX(-1)' : 'none';
-                const transform = form === 'tv' ? flipTV : flipGhost;
+                // Render height: scale sprite to 62px
+                const drawH = 62;
+                const drawW = 62;
+                const playerCenterX = p.x + p.width / 2;
+                const playerBottom = p.y + p.height;
+                const left = playerCenterX - drawW / 2;
+                const top = playerBottom - drawH;
+
+                // TV form images face right by default — flip left when facing left (scaleX(-1))
+                // Ghost form images face left by default — flip right when facing right (scaleX(-1))
+                const transform = form === 'tv' 
+                  ? (p.facing === 'left' ? 'scaleX(-1)' : 'none')
+                  : (p.facing === 'right' ? 'scaleX(-1)' : 'none');
 
                 return (
                   <img
@@ -2843,7 +2835,7 @@ export default function GameCanvas() {
                     style={{
                       position: 'absolute',
                       left, top,
-                      width: spriteW, height: spriteH,
+                      width: drawW, height: drawH,
                       imageRendering: 'pixelated',
                       transform,
                       transformOrigin: 'center center',
