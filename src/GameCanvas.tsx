@@ -724,6 +724,10 @@ export default function GameCanvas() {
             p.activeEffects = p.activeEffects || {};
             p.activeEffects['phantasmaFloat'] = Date.now() + ((data as any).duration || 2000);
         }
+        if (data.effect === 'phantomDash') {
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['phantomDash'] = Date.now() + ((data as any).duration || 600);
+        }
         if (data.effect === 'invincibilityChange') {
             p.isInvincible = (data as any).isInvincible;
         }
@@ -745,10 +749,10 @@ export default function GameCanvas() {
     });
 
     newSocket.on('empEffect', (data: { x: number; y: number }) => {
-        // Spawn EMP ring particles
-        for (let i = 0; i < 16; i++) {
-            const angle = (i / 16) * Math.PI * 2;
-            particlesRef.current.push({ x: data.x, y: data.y, vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8, life: 25, maxLife: 25, color: '#38bdf8', size: 5, ignoreGravity: true });
+        // Spawn expanded EMP ring particles matching 350px radius
+        for (let i = 0; i < 32; i++) {
+            const angle = (i / 32) * Math.PI * 2;
+            particlesRef.current.push({ x: data.x, y: data.y, vx: Math.cos(angle) * 14, vy: Math.sin(angle) * 14, life: 25, maxLife: 25, color: '#38bdf8', size: 6, ignoreGravity: true });
         }
     });
 
@@ -1082,29 +1086,31 @@ export default function GameCanvas() {
                       if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
                       if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
                   } else {
-                      const dashSpeed = isPhantomDashActive ? currentSpeed * 2.0 : (isColeRollActive ? MOVE_SPEED * 2 : currentSpeed * 2.5);
+                      const dashSpeed = isPhantomDashActive ? currentSpeed * 3.0 : (isColeRollActive ? MOVE_SPEED * 2 : currentSpeed * 2.5);
                       moveTarget = myPlayer.facing === 'right' ? dashSpeed : -dashSpeed;
                       
-                      const nextLeft = myPlayer.x + moveTarget;
-                      const nextRight = myPlayer.x + myPlayer.width + moveTarget;
-                      const checkX = myPlayer.facing === 'right' ? nextRight : nextLeft;
-                      const checkY = myPlayer.y + myPlayer.height + 5;
-                      
-                      let hasGround = false;
-                      for (const plat of PLATFORMS) {
-                          if (checkX > plat.x && checkX < plat.x + plat.width && 
-                              checkY >= plat.y && checkY <= plat.y + 20) {
-                              hasGround = true; 
-                              break;
+                      if (!isPhantomDashActive) {
+                          const nextLeft = myPlayer.x + moveTarget;
+                          const nextRight = myPlayer.x + myPlayer.width + moveTarget;
+                          const checkX = myPlayer.facing === 'right' ? nextRight : nextLeft;
+                          const checkY = myPlayer.y + myPlayer.height + 5;
+                          
+                          let hasGround = false;
+                          for (const plat of PLATFORMS) {
+                              if (checkX > plat.x && checkX < plat.x + plat.width && 
+                                  checkY >= plat.y && checkY <= plat.y + 20) {
+                                  hasGround = true; 
+                                  break;
+                              }
                           }
-                      }
-                      
-                      if (!hasGround) {
-                          if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
-                          if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
-                          myPlayer.activeEffects['edgeBrake'] = Date.now() + 150;
-                          moveTarget = 0;
-                          myPlayer.velocity.x = 0;
+                          
+                          if (!hasGround) {
+                              if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
+                              if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
+                              myPlayer.activeEffects['edgeBrake'] = Date.now() + 150;
+                              moveTarget = 0;
+                              myPlayer.velocity.x = 0;
+                          }
                       }
                   }
               } else if (myPlayer.activeEffects?.['toothDash'] && myPlayer.activeEffects['toothDash'] > Date.now()) {

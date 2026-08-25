@@ -2085,7 +2085,7 @@ io.on('connection', (socket) => {
           const form = player.phantasmaForm || 'tv';
           if (form === 'tv') {
               if (data.ability === 1) {
-                  // Electronic Disturbance — EMP ring that reroutes projectiles away from Phantasma
+                  // Electronic Disturbance — EMP ring that reroutes projectiles away from Phantasma (expanded to 350px)
                   player.phantasmaState = 'attack1';
                   io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack1' });
                   const empX = player.x + player.width / 2;
@@ -2093,7 +2093,7 @@ io.on('connection', (socket) => {
                   for (const [pid, proj] of Object.entries(projectiles)) {
                       if (proj.type === 'boomerang') continue;
                       const dist = Math.hypot(proj.x - empX, proj.y - empY);
-                      if (dist < 200) {
+                      if (dist < 350) {
                           // Calculate angle outward from Phantasma center + slight random spread
                           let angle = Math.atan2(proj.y - empY, proj.x - empX);
                           if (isNaN(angle) || (proj.x === empX && proj.y === empY)) {
