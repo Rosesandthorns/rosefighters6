@@ -653,6 +653,26 @@ setInterval(() => {
             const player = players[playerId];
             if (!player || player.isEliminated) continue;
 
+            // Coco Rage Cloud aura tick (damages and slows enemies inside 250px aura)
+            if (player.characterId === 'coco' && player.cocoRageActive && player.cocoRageEnd && now < player.cocoRageEnd) {
+                if (now % 500 < 35) {
+                    for (const targetId of lobbyPlayerIds) {
+                        if (targetId === player.id) continue;
+                        const target = players[targetId];
+                        if (!target || target.isEliminated) continue;
+                        const dist = Math.hypot(target.x + target.width/2 - (player.x + player.width/2), target.y + target.height/2 - (player.y + player.height/2));
+                        if (dist <= 250) {
+                            applyDamage(target, 5, player.id);
+                            target.speedMult = (target.speedMult || 1.0) * 0.5;
+                            io.to(target.id).emit('applyKnockback', { vx: target.x > player.x ? 4 : -4, vy: -2, stunFrames: 5 });
+                            target.activeEffects = target.activeEffects || {};
+                            target.activeEffects['cocoRageHit'] = now + 1000;
+                            io.emit('playerEffect', { id: target.id, effect: 'cocoRageHit', duration: 1000 });
+                        }
+                    }
+                }
+            }
+
             if (player.womboTimer && player.womboTimer > now) {
                 if (now % 300 < 35) {
                     for (const targetId of lobbyPlayerIds) {
@@ -1962,32 +1982,30 @@ io.on('connection', (socket) => {
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack2' });
               setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 800);
           } else if (data.ability === 3) {
-              // Lose 20 hp or go to 1 hp, whichever is less damage
-              const hpLost = Math.min(20, player.health - 1);
+              // Self-damage cost: lose 5 HP (min 1 HP)
+              const hpLost = Math.min(5, player.health - 1);
               if (hpLost > 0) player.health -= hpLost;
               io.emit('playerHealthChanged', { id: player.id, health: player.health });
-              // Apply rage cloud — 8x speed for Coco only, 20s
+              
+              // Activate rage cloud aura for 12 seconds
               player.cocoRageActive = true;
-              player.cocoRageEnd = Date.now() + 20000;
-              player.speedMult = 0.8 * 8;
-              io.emit('playerEffect', { id: player.id, effect: 'cocoRage', duration: 20000 });
-              // Set active effect on player for client rendering
+              player.cocoRageEnd = Date.now() + 12000;
+              player.speedMult = 0.8 * 2.2; // 2.2x speed boost for Coco
+              io.emit('playerEffect', { id: player.id, effect: 'cocoRage', duration: 12000 });
+              
               player.activeEffects = player.activeEffects || {};
-              player.activeEffects['cocoRage'] = Date.now() + 20000;
-              // Affect nearby players - apply rage cloud effect to everyone in range
-              Object.values(players).forEach(p => {
-                  const dist = Math.hypot(p.x - player.x, p.y - player.y);
-                  if (dist < 200) {
-                      p.activeEffects = p.activeEffects || {};
-                      p.activeEffects['cocoRageHit'] = Date.now() + 20000;
-                      io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration: 20000, isPipNexus: p.characterId === 'pip' || p.characterId === 'nexus' });
-                      setTimeout(() => { if (players[p.id]) { delete players[p.id].activeEffects?.['cocoRageHit']; } }, 20000);
-                  }
-              });
+              player.activeEffects['cocoRage'] = Date.now() + 12000;
               player.cocoState = 'attack13';
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack13' });
+              
               setTimeout(() => { if (players[player.id]) { players[player.id].cocoState = 'idle'; io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'idle' }); } }, 220);
-              setTimeout(() => { if (players[player.id]) { players[player.id].cocoRageActive = false; const char = ROSTER.find(c => c.id === 'coco'); players[player.id].speedMult = char ? char.speedMult : 0.8; } }, 20000);
+              setTimeout(() => { 
+                  if (players[player.id]) { 
+                      players[player.id].cocoRageActive = false; 
+                      const char = ROSTER.find(c => c.id === 'coco'); 
+                      players[player.id].speedMult = char ? char.speedMult : 0.8; 
+                  } 
+              }, 12000);
           }
       } else if (player.characterId === 'pinedo') {
           if (data.ability === 1) {
