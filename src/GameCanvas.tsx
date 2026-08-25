@@ -278,7 +278,7 @@ export default function GameCanvas() {
       idle:        '/Zobo/ZoboIdle.gif',
       walk:        '/Zobo/ZoboWalkgif.gif',
       attack1:     '/Zobo/ZoboAttack1Startgif.gif',
-      attack1mid:  '/Zobo/ZoboAttack1middle.png',
+      attack1mid:  '/Zobo/ZoboAttack1middle1.png',
       attack2:     '/Zobo/ZoboAttack2.gif',
       projectile:  '/Zobo/ZoboProjectile.png',
       projectile2: '/Zobo/ZoboProjectile2.png',
@@ -2629,7 +2629,7 @@ export default function GameCanvas() {
                 let src = '/Zobo/ZoboIdle.gif';
                 if (state === 'walk') src = '/Zobo/ZoboWalkgif.gif';
                 else if (state === 'attack1start') src = '/Zobo/ZoboAttack1Startgif.gif';
-                else if (state === 'attack1mid' || state === 'attack1return') src = '/Zobo/ZoboAttack1middle.png';
+                else if (state === 'attack1mid' || state === 'attack1return') src = '/Zobo/ZoboAttack1middle1.png';
                 else if (state === 'attack2') src = '/Zobo/ZoboAttack2.gif';
                 else if (state === 'attack3') src = '/Zobo/ZoboIdle.gif';
 
