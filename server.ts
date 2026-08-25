@@ -967,10 +967,13 @@ setInterval(() => {
                 // so fast/narrow projectiles don't tunnel through thin hitboxes
                 const prevX = proj.x - proj.vx;
                 const prevY = proj.y - proj.vy;
-                const minX = Math.min(proj.x, prevX);
-                const maxX = Math.max(proj.x, prevX);
-                const minY = Math.min(proj.y, prevY);
-                const maxY = Math.max(proj.y, prevY);
+                // Expand spider hit box vertically (+30/-30) so characters standing below/above are hit
+                const padY = proj.type === 'spider' ? 30 : 0;
+                const padX = proj.type === 'spider' ? 15 : 0;
+                const minX = Math.min(proj.x, prevX) - padX;
+                const maxX = Math.max(proj.x, prevX) + padX;
+                const minY = Math.min(proj.y, prevY) - padY;
+                const maxY = Math.max(proj.y, prevY) + padY;
                 const sweptHit = maxX > player.x && minX < player.x + player.width &&
                             maxY > player.y && minY < player.y + player.height;
                 if (sweptHit) {
