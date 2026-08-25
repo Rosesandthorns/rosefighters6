@@ -388,8 +388,8 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
     const currentIndex = lobbyPlayer?.currentRosterIndex || 0;
     const nextIndex = currentIndex + 1;
 
-    // Roster mode ends when 3 characters on your side die (0 -> 1 -> 2, dies at index 3)
-    if (nextIndex < 3 && nextIndex < roster.length) {
+    // Roster mode ends when all 5 characters in your chosen roster die (nextIndex < roster.length)
+    if (nextIndex < roster.length) {
       const nextCharId = roster[nextIndex];
       const char = ROSTER.find(c => c.id === nextCharId) || ROSTER[0];
       target.characterId = char.id;
