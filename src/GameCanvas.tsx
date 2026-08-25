@@ -2832,7 +2832,7 @@ export default function GameCanvas() {
                 let transform: string;
 
                 if (form === 'tv') {
-                  if (p.facing === 'left') {
+                  if (p.facing === 'right') {
                     transform = 'scaleX(-1)';
                     left = visualBoxLeft - (drawW - offsetX - spriteHitboxW);
                   } else {
@@ -2840,7 +2840,7 @@ export default function GameCanvas() {
                     left = visualBoxLeft - offsetX;
                   }
                 } else {
-                  if (p.facing === 'right') {
+                  if (p.facing === 'left') {
                     transform = 'scaleX(-1)';
                     left = visualBoxLeft - (drawW - offsetX - spriteHitboxW);
                   } else {
