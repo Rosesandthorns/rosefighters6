@@ -739,8 +739,13 @@ export default function GameCanvas() {
     });
 
     newSocket.on('playerHealthChanged', ({ id, health }: { id: string, health: number }) => {
-      if (playersRef.current[id]) {
-        playersRef.current[id].health = health;
+      const p = playersRef.current[id];
+      if (p) {
+        p.health = health;
+        if (p.characterId === 'zobo') {
+          const hpLost = Math.max(0, 150 - health);
+          p.speedMult = 0.2 + Math.floor(hpLost / 10) * 0.1;
+        }
         setPlayersList(Object.values(playersRef.current));
       }
     });
