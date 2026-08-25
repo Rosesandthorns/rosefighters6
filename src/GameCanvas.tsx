@@ -286,8 +286,10 @@ export default function GameCanvas() {
   const [isMobile] = useState(() => /Android|iPhone|iPad|iPod|Touch/i.test(navigator.userAgent) || window.matchMedia('(pointer:coarse)').matches);
 
   useEffect(() => {
-    // Connect to same host, forcing websocket transport to avoid Cloud Run load balancing / polling issues
-    const newSocket = io({ transports: ['websocket'] });
+    // Connect to same host, forcing websocket transport to avoid load balancing / polling issues
+    // In production, will connect to the deployed server URL
+    const serverUrl = import.meta.env.PROD ? window.location.origin : 'http://localhost:3000';
+    const newSocket = io(serverUrl, { transports: ['websocket'] });
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
