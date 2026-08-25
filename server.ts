@@ -1,5 +1,4 @@
 import express from 'express';
-import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
@@ -163,6 +162,7 @@ interface Projectile {
     damage: number;
     life: number;
     state?: string;
+    lobbyId?: string;
 }
 
 interface Wall {
@@ -177,6 +177,7 @@ interface Wall {
     ownerId?: string;
     rising?: boolean;
     riseSpeed?: number;
+    lobbyId?: string;
 }
 
 interface Zone {
@@ -186,6 +187,7 @@ interface Zone {
     radius: number;
     timer: number;
     ownerId: string;
+    lobbyId?: string;
 }
 
 interface Drone {
@@ -198,6 +200,7 @@ interface Drone {
     hp: number;
     type?: 'A' | 'B' | 'C';
     angle?: number;
+    lobbyId?: string;
 }
 
 const players: Record<string, Player> = {};
@@ -210,6 +213,200 @@ const drones: Record<string, Drone> = {};
 let entityIdCounter = 0;
 let lobbyIdCounter = 0;
 
+// Helper function to get lobby by player ID
+function getLobbyByPlayerId(playerId: string): Lobby | null {
+  const lobbyId = playerLobbyMap[playerId];
+  return lobbyId ? lobbies[lobbyId] : null;
+}
+
+// Helper function to broadcast available lobbies to all clients
+function broadcastAvailableLobbies() {
+  io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+    id: lobby.id,
+    name: lobby.name,
+    isPrivate: lobby.isPrivate,
+    gameMode: lobby.gameMode,
+    playerCount: Object.keys(lobby.players).length,
+    gameState: lobby.gameState
+  })));
+}
+
+// Helper function to end a match in a lobby
+function endLobbyMatch(lobby: Lobby, winnerId: string, reason: string) {
+  lobby.gameState = 'LOBBY';
+  lobby.matchEndTime = Date.now();
+  lobby.matchStartTime = undefined;
+  for (const playerId of Object.keys(lobby.players)) {
+    delete players[playerId];
+    lobby.players[playerId].isReady = false;
+    lobby.players[playerId].characterId = null;
+    if (lobby.gameMode === 'roster_choice') {
+      lobby.players[playerId].currentRosterIndex = 0;
+    }
+  }
+  io.to(lobby.id).emit('gameEnd', { winnerId, reason });
+  io.to(lobby.id).emit('lobbyUpdate', lobby);
+  broadcastAvailableLobbies();
+}
+
+// Helper function to check win conditions for a lobby
+function checkWinConditions(lobby: Lobby) {
+  if (lobby.gameState !== 'PLAYING') return;
+
+  if (lobby.gameMode === 'ffa' || lobby.gameMode === 'chaos_rounds') {
+    const lobbyPlayerIds = Object.keys(lobby.players);
+    const playerScores = lobbyPlayerIds.map(id => ({ id, score: players[id]?.score || 0 }));
+    if (playerScores.length > 1) {
+      const sortedScores = playerScores.sort((a, b) => b.score - a.score);
+      if (sortedScores[0].score - sortedScores[1].score >= 15) {
+        endLobbyMatch(lobby, sortedScores[0].id, 'kill_streak_lead');
+        return;
+      }
+    }
+  }
+
+  if (lobby.gameMode === 'roster_choice') {
+    const activePlayers = Object.keys(lobby.players)
+      .map(id => players[id])
+      .filter(p => p && !p.isEliminated);
+    if (activePlayers.length === 1) {
+      endLobbyMatch(lobby, activePlayers[0].id, 'last_standing');
+      return;
+    }
+  }
+}
+
+// Unified Player Death Handler
+function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
+  if (!target) return;
+  const targetLobby = getLobbyByPlayerId(target.id);
+  const targetLobbyId = targetLobby ? targetLobby.id : null;
+
+  let effectiveKillerId = killerId;
+  if (!effectiveKillerId && target.lastHitBy && (Date.now() - target.lastHitBy.time < 5000)) {
+    effectiveKillerId = target.lastHitBy.id;
+  }
+
+  if (effectiveKillerId && players[effectiveKillerId] && effectiveKillerId !== target.id) {
+    players[effectiveKillerId].score = (players[effectiveKillerId].score || 0) + 1;
+    const killerLobby = getLobbyByPlayerId(effectiveKillerId);
+    if (killerLobby) {
+      io.to(killerLobby.id).emit('scoreUpdated', { id: effectiveKillerId, score: players[effectiveKillerId].score });
+    }
+  } else if (cause === 'void' && (!effectiveKillerId || effectiveKillerId === target.id)) {
+    target.score = Math.max(0, (target.score || 0) - 1);
+    if (targetLobbyId) {
+      io.to(targetLobbyId).emit('scoreUpdated', { id: target.id, score: target.score });
+    }
+  }
+
+  target.lastHitBy = undefined;
+  target.dots = [];
+  target.isGrabbingLedge = false;
+  target.isStunned = false;
+  target.velocity = { x: 0, y: 0 };
+  target.activeEffects = {};
+  target.safetyWarpState = 'none';
+  target.deflectTimer = 0;
+  target.mimicTimer = 0;
+  target.kaelenBombCD = 0;
+  target.kaelenBomb = null;
+  target.inkSlowed = 0;
+  target.paintCovered = 0;
+  target.womboTimer = 0;
+
+  if (target.grabbedPlayerId) {
+    const g = players[target.grabbedPlayerId];
+    if (g) g.grabbedByPlayerId = null;
+    target.grabbedPlayerId = null;
+  }
+  if (target.grabbedByPlayerId) {
+    const g = players[target.grabbedByPlayerId];
+    if (g) g.grabbedPlayerId = null;
+    target.grabbedByPlayerId = null;
+  }
+
+  if (!targetLobby) {
+    target.health = target.maxHealth;
+    target.x = Math.random() * 400 + 312;
+    target.y = 50;
+    io.emit('playerRespawned', target);
+    return;
+  }
+
+  if (targetLobby.gameMode === 'randomized') {
+    const randomChar = ROSTER[Math.floor(Math.random() * ROSTER.length)];
+    const char = ROSTER.find(c => c.id === randomChar.id) || ROSTER[0];
+    target.characterId = char.id;
+    target.health = char.hp;
+    target.maxHealth = char.hp;
+    target.speedMult = char.speedMult;
+    target.width = char.id === 'wax' ? 100 : char.id === 'mirage' ? 12 : char.id === 'coco' ? 40 : 50;
+    target.height = char.id === 'wax' ? 120 : char.id === 'mirage' ? 40 : char.id === 'coco' ? 65 : 50;
+    target.color = char.color;
+    target.x = Math.random() * 400 + 312;
+    target.y = 50;
+
+    io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
+    io.to(targetLobby.id).emit('characterChange', { id: target.id, newCharacterId: target.characterId });
+    io.to(targetLobby.id).emit('playerRespawned', target);
+
+    if (effectiveKillerId && players[effectiveKillerId] && effectiveKillerId !== target.id) {
+      const killer = players[effectiveKillerId];
+      const killerRandomChar = ROSTER[Math.floor(Math.random() * ROSTER.length)];
+      const killerChar = ROSTER.find(c => c.id === killerRandomChar.id) || ROSTER[0];
+      killer.characterId = killerChar.id;
+      killer.health = killerChar.hp;
+      killer.maxHealth = killerChar.hp;
+      killer.speedMult = killerChar.speedMult;
+      killer.width = killerChar.id === 'wax' ? 100 : killerChar.id === 'mirage' ? 12 : killerChar.id === 'coco' ? 40 : 50;
+      killer.height = killerChar.id === 'wax' ? 120 : killerChar.id === 'mirage' ? 40 : killerChar.id === 'coco' ? 65 : 50;
+      killer.color = killerChar.color;
+
+      io.to(targetLobby.id).emit('playerEffect', { id: killer.id, effect: 'characterChange', newCharacterId: killer.characterId });
+      io.to(targetLobby.id).emit('characterChange', { id: killer.id, newCharacterId: killer.characterId });
+      io.to(targetLobby.id).emit('playerRespawned', killer);
+    }
+  } else if (targetLobby.gameMode === 'roster_choice') {
+    const lobbyPlayer = targetLobby.players[target.id];
+    const roster = lobbyPlayer?.rosterChoice || [];
+    const currentIndex = lobbyPlayer?.currentRosterIndex || 0;
+    const nextIndex = currentIndex + 1;
+
+    if (nextIndex < roster.length) {
+      const nextCharId = roster[nextIndex];
+      const char = ROSTER.find(c => c.id === nextCharId) || ROSTER[0];
+      target.characterId = char.id;
+      target.health = char.hp;
+      target.maxHealth = char.hp;
+      target.speedMult = char.speedMult;
+      target.width = char.id === 'wax' ? 100 : char.id === 'mirage' ? 12 : char.id === 'coco' ? 40 : 50;
+      target.height = char.id === 'wax' ? 120 : char.id === 'mirage' ? 40 : char.id === 'coco' ? 65 : 50;
+      target.color = char.color;
+      target.currentRosterIndex = nextIndex;
+      if (lobbyPlayer) lobbyPlayer.currentRosterIndex = nextIndex;
+      target.x = Math.random() * 400 + 312;
+      target.y = 50;
+
+      io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
+      io.to(targetLobby.id).emit('characterChange', { id: target.id, newCharacterId: target.characterId });
+      io.to(targetLobby.id).emit('playerRespawned', target);
+    } else {
+      target.isEliminated = true;
+      delete players[target.id];
+      io.to(targetLobby.id).emit('playerEliminated', { id: target.id });
+    }
+  } else {
+    target.health = target.maxHealth;
+    target.x = Math.random() * 400 + 312;
+    target.y = 50;
+    io.to(targetLobby.id).emit('playerRespawned', target);
+    io.to(targetLobby.id).emit('playerHealthChanged', { id: target.id, health: target.health });
+  }
+
+  checkWinConditions(targetLobby);
+}
+
 function applyDamage(target: Player, damage: number, attackerId?: string, isExplosion = false) {
     if (target.isInvincible) return;
 
@@ -217,28 +414,25 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
     if (target.mimicTimer && target.mimicTimer > Date.now()) {
         if (!isExplosion && attackerId) {
             target.mimicTimer = 0;
-            io.emit('playerEffect', { id: target.id, effect: 'mimicSuccess' });
+            const targetLobby = getLobbyByPlayerId(target.id);
+            if (targetLobby) io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'mimicSuccess' });
             const attacker = players[attackerId];
             if (attacker && !attacker.isInvincible) {
                 const dmg = Math.min(50, attacker.maxHealth * 0.33);
                 attacker.health -= dmg;
                 attacker.x = target.x + (target.facing === 'right' ? -50 : 50);
-                io.emit('forcePosition', { id: attacker.id, x: attacker.x, y: attacker.y });
-                io.to(attacker.id).emit('applyKnockback', { vx: 0, vy: 15, stunFrames: 150 });
+                if (targetLobby) {
+                    io.to(targetLobby.id).emit('forcePosition', { id: attacker.id, x: attacker.x, y: attacker.y });
+                    io.to(attacker.id).emit('applyKnockback', { vx: 0, vy: 15, stunFrames: 150 });
+                }
                 if (attacker.health <= 0) {
-                    attacker.health = attacker.maxHealth;
-                    attacker.x = Math.random() * 400 + 312;
-                    attacker.y = 50;
-                    attacker.isGrabbingLedge = false;
-                    target.score += 1;
-                    io.emit('playerRespawned', attacker);
-                    io.emit('scoreUpdated', { id: target.id, score: target.score });
-                } else {
-                    io.emit('playerHealthChanged', { id: attacker.id, health: attacker.health });
+                    handlePlayerDeath(attacker, target.id, 'mimic');
+                } else if (targetLobby) {
+                    io.to(targetLobby.id).emit('playerHealthChanged', { id: attacker.id, health: attacker.health });
                 }
             }
         }
-        return; // Negate damage
+        return;
     }
 
     // Deflect Counter
@@ -247,134 +441,50 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
         if (attacker) {
             if (attacker.isInvincible) attacker.isInvincible = false;
             attacker.health -= damage * 2;
-            io.emit('playerEffect', { id: target.id, effect: 'deflectSuccess' });
-            io.emit('playerEffect', { id: attacker.id, effect: 'hit' });
+            const targetLobby = getLobbyByPlayerId(target.id);
+            if (targetLobby) {
+                io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'deflectSuccess' });
+                io.to(targetLobby.id).emit('playerEffect', { id: attacker.id, effect: 'hit' });
+            }
             if (attacker.health <= 0) {
-                attacker.health = attacker.maxHealth;
-                attacker.x = Math.random() * 400 + 312;
-                attacker.y = 50;
-                attacker.isGrabbingLedge = false;
-                target.score += 1;
-                io.emit('playerRespawned', attacker);
-                io.emit('scoreUpdated', { id: target.id, score: target.score });
-            } else {
-                io.emit('playerHealthChanged', { id: attacker.id, health: attacker.health });
+                handlePlayerDeath(attacker, target.id, 'deflect');
+            } else if (targetLobby) {
+                io.to(targetLobby.id).emit('playerHealthChanged', { id: attacker.id, health: attacker.health });
             }
         }
-        return; // Negate damage
+        return;
     }
 
     if (target.characterId === 'chester' && target.healTimer && target.healTimer > Date.now()) {
         target.healTimer = 0;
-        io.emit('playerEffect', { id: target.id, effect: 'healCancel' });
+        const targetLobby = getLobbyByPlayerId(target.id);
+        if (targetLobby) io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'healCancel' });
     }
 
     target.health -= damage;
     if (attackerId) {
         target.lastHitBy = { id: attackerId, time: Date.now() };
     }
-    io.emit('playerEffect', { id: target.id, effect: 'hit' });
+    const targetLobby = getLobbyByPlayerId(target.id);
+    if (targetLobby) io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'hit' });
 
     if (target.health <= 0) {
-        target.health = target.maxHealth;
-        target.x = Math.random() * 400 + 312;
-        target.y = 50;
-        target.isGrabbingLedge = false;
-        if (attackerId && players[attackerId] && attackerId !== target.id) {
-            players[attackerId].score += 1;
-            io.emit('scoreUpdated', { id: attackerId, score: players[attackerId].score });
-        }
-        
-        // Randomized mode: give new random character on death
-        const lobby = getLobbyByPlayerId(target.id);
-        if (lobby && lobby.gameMode === 'randomized') {
-            const randomChar = ROSTER[Math.floor(Math.random() * ROSTER.length)];
-            const char = ROSTER.find(c => c.id === randomChar.id);
-            target.characterId = randomChar.id;
-            target.health = char ? char.hp : 100;
-            target.maxHealth = char ? char.hp : 100;
-            target.speedMult = char ? char.speedMult : 1.0;
-            target.width = randomChar.id === 'wax' ? 100 : randomChar.id === 'mirage' ? 12 : randomChar.id === 'coco' ? 40 : 50;
-            target.height = randomChar.id === 'wax' ? 120 : randomChar.id === 'mirage' ? 40 : randomChar.id === 'coco' ? 65 : 50;
-            target.color = char ? char.color : '#fff';
-            io.emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
-        }
-        
-        // Randomized mode: give killer new random character on kill
-        if (lobby && lobby.gameMode === 'randomized' && attackerId && players[attackerId]) {
-            const attacker = players[attackerId];
-            const randomChar = ROSTER[Math.floor(Math.random() * ROSTER.length)];
-            const char = ROSTER.find(c => c.id === randomChar.id);
-            attacker.characterId = randomChar.id;
-            attacker.health = char ? char.hp : 100;
-            attacker.maxHealth = char ? char.hp : 100;
-            attacker.speedMult = char ? char.speedMult : 1.0;
-            attacker.width = randomChar.id === 'wax' ? 100 : randomChar.id === 'mirage' ? 12 : randomChar.id === 'coco' ? 40 : 50;
-            attacker.height = randomChar.id === 'wax' ? 120 : randomChar.id === 'mirage' ? 40 : randomChar.id === 'coco' ? 65 : 50;
-            attacker.color = char ? char.color : '#fff';
-            io.emit('playerEffect', { id: attacker.id, effect: 'characterChange', newCharacterId: attacker.characterId });
-        }
-        
-        // Roster Choice mode: switch to next character on death
-        if (lobby && lobby.gameMode === 'roster_choice') {
-            const roster = lobby.players[target.id].rosterChoice || [];
-            const lobbyPlayer = lobby.players[target.id];
-            const currentIndex = lobbyPlayer.currentRosterIndex || 0;
-            const nextIndex = currentIndex + 1;
-            
-            if (nextIndex < roster.length) {
-                // Switch to next character
-                const nextCharId = roster[nextIndex];
-                const char = ROSTER.find(c => c.id === nextCharId);
-                target.characterId = nextCharId;
-                target.health = char ? char.hp : 100;
-                target.maxHealth = char ? char.hp : 100;
-                target.speedMult = char ? char.speedMult : 1.0;
-                target.width = nextCharId === 'wax' ? 100 : nextCharId === 'mirage' ? 12 : nextCharId === 'coco' ? 40 : 50;
-                target.height = nextCharId === 'wax' ? 120 : nextCharId === 'mirage' ? 40 : nextCharId === 'coco' ? 65 : 50;
-                target.color = char ? char.color : '#fff';
-                target.currentRosterIndex = nextIndex;
-                // Update lobby player to persist the index
-                lobbyPlayer.currentRosterIndex = nextIndex;
-                io.emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
-                io.emit('playerRespawned', target);
-            } else {
-                // No more characters - eliminate player
-                target.isEliminated = true;
-                delete players[target.id];
-                io.emit('playerEliminated', { id: target.id });
-            }
-        } else {
-            // Normal respawn for other modes
-            io.emit('playerRespawned', target);
-        }
-    } else {
-        io.emit('playerHealthChanged', { id: target.id, health: target.health });
+        handlePlayerDeath(target, attackerId, 'damage');
+    } else if (targetLobby) {
+        io.to(targetLobby.id).emit('playerHealthChanged', { id: target.id, health: target.health });
     }
 }
 
-// Periodic cleanup of empty lobbies (every 30 seconds)
+// Periodic cleanup of empty lobbies (every 10 seconds)
 setInterval(() => {
-  const now = Date.now();
   for (const [lobbyId, lobby] of Object.entries(lobbies)) {
-    const playerCount = Object.keys(lobby.players).length;
-    const age = now - lobby.createdAt;
-    
-    // Delete empty lobbies older than 5 minutes
-    if (playerCount === 0 && age > 300000) {
+    if (Object.keys(lobby.players).length === 0) {
       delete lobbies[lobbyId];
       io.emit('lobbyClosed', { lobbyId: lobby.id });
-      io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-        id: lobby.id,
-        name: lobby.name,
-        isPrivate: lobby.isPrivate,
-        gameMode: lobby.gameMode,
-        playerCount: Object.keys(lobby.players).length,
-        gameState: lobby.gameState
-      })));
+      broadcastAvailableLobbies();
     }
   }
-}, 30000);
+}, 10000);
 
 // Helper function to generate lobby code
 function generateLobbyCode(): string {
@@ -384,12 +494,6 @@ function generateLobbyCode(): string {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
-}
-
-// Helper function to get lobby by player ID
-function getLobbyByPlayerId(playerId: string): Lobby | null {
-  const lobbyId = playerLobbyMap[playerId];
-  return lobbyId ? lobbies[lobbyId] : null;
 }
 
 // Helper function to get default settings for game mode
@@ -414,359 +518,271 @@ setInterval(() => {
         if (lobby.gameState !== 'PLAYING') continue;
         
         const now = Date.now();
+        const lobbyPlayerIds = new Set(Object.keys(lobby.players));
 
-        // Process Zones (Future Prediction)
+        // Process Zones
         for (const [id, zone] of Object.entries(zones)) {
-        if (now >= zone.timer) {
-            io.emit('zoneDetonate', { x: zone.x, y: zone.y, radius: zone.radius });
-            for (const player of Object.values(players)) {
-                const dist = Math.hypot(player.x + player.width/2 - zone.x, player.y + player.height/2 - zone.y);
-                if (dist <= zone.radius) {
-                    player.dots = player.dots || [];
-                    player.dots.push({ damagePerTick: 7.5, ticksLeft: 4, nextTick: now + 500, ownerId: zone.ownerId });
-                    io.emit('playerEffect', { id: player.id, effect: 'dotStart' });
-                }
-            }
-            for (const [droneId, drone] of Object.entries(drones)) {
-                if (drone.ownerId !== zone.ownerId) {
-                    const dist = Math.hypot(drone.x - zone.x, drone.y - zone.y);
-                    if (dist <= zone.radius) {
-                        drone.hp -= 15;
-                    }
-                }
-            }
-            delete zones[id];
-        }
-    }
+            const zoneLobbyId = zone.lobbyId || playerLobbyMap[zone.ownerId];
+            if (zoneLobbyId !== lobbyId) continue;
 
-        // Check win condition for FFA and Chaos (15 kill streak lead)
-        if (lobby.gameMode === 'ffa' || lobby.gameMode === 'chaos_rounds') {
-        const playerScores = Object.values(players).map(p => ({ id: p.id, score: p.score }));
-        if (playerScores.length > 1) {
-            const sortedScores = playerScores.sort((a, b) => b.score - a.score);
-            const highestScore = sortedScores[0].score;
-            const secondHighestScore = sortedScores[1].score;
-            
-            if (highestScore - secondHighestScore >= 15) {
-                // Winner found
-                lobby.gameState = 'LOBBY';
-                lobby.matchEndTime = Date.now();
-                lobby.matchStartTime = undefined;
-                // Clear players from the game and reset lobby players
-                for (const playerId of Object.keys(players)) {
-                    delete players[playerId];
-                }
-                for (const playerId of Object.keys(lobby.players)) {
-                    lobby.players[playerId].isReady = false;
-                    lobby.players[playerId].characterId = null;
-                    // Reset roster index for roster choice
-                    if (lobby.gameMode === 'roster_choice') {
-                        lobby.players[playerId].currentRosterIndex = 0;
+            if (now >= zone.timer) {
+                io.to(lobbyId).emit('zoneDetonate', { x: zone.x, y: zone.y, radius: zone.radius });
+                for (const playerId of lobbyPlayerIds) {
+                    const player = players[playerId];
+                    if (!player) continue;
+                    const dist = Math.hypot(player.x + player.width/2 - zone.x, player.y + player.height/2 - zone.y);
+                    if (dist <= zone.radius) {
+                        player.dots = player.dots || [];
+                        player.dots.push({ damagePerTick: 7.5, ticksLeft: 4, nextTick: now + 500, ownerId: zone.ownerId });
+                        io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'dotStart' });
                     }
                 }
-                io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'kill_streak_lead' });
-                io.to(lobby.id).emit('lobbyUpdate', lobby);
-                io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-                    id: lobby.id,
-                    name: lobby.name,
-                    isPrivate: lobby.isPrivate,
-                    gameMode: lobby.gameMode,
-                    playerCount: Object.keys(lobby.players).length,
-                    gameState: lobby.gameState
-                })));
-                continue;
+                for (const [droneId, drone] of Object.entries(drones)) {
+                    const droneLobbyId = drone.lobbyId || playerLobbyMap[drone.ownerId];
+                    if (droneLobbyId === lobbyId && drone.ownerId !== zone.ownerId) {
+                        const dist = Math.hypot(drone.x - zone.x, drone.y - zone.y);
+                        if (dist <= zone.radius) {
+                            drone.hp -= 15;
+                        }
+                    }
+                }
+                delete zones[id];
             }
         }
-    }
-        
-        // Check win condition for Roster Choice (last player with characters left)
-        if (lobby.gameMode === 'roster_choice') {
-        const activePlayers = Object.values(players).filter(p => !p.isEliminated);
-        if (activePlayers.length === 1) {
-            // Winner found
-            lobby.gameState = 'LOBBY';
-            lobby.matchEndTime = Date.now();
-            lobby.matchStartTime = undefined;
-            // Clear players from the game and reset lobby players
-            for (const playerId of Object.keys(players)) {
-                delete players[playerId];
-            }
-            for (const playerId of Object.keys(lobby.players)) {
-                lobby.players[playerId].isReady = false;
-                lobby.players[playerId].characterId = null;
-                lobby.players[playerId].currentRosterIndex = 0;
-            }
-            io.to(lobby.id).emit('gameEnd', { winnerId: activePlayers[0].id, reason: 'last_standing' });
-            io.to(lobby.id).emit('lobbyUpdate', lobby);
-            io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-                id: lobby.id,
-                name: lobby.name,
-                isPrivate: lobby.isPrivate,
-                gameMode: lobby.gameMode,
-                playerCount: Object.keys(lobby.players).length,
-                gameState: lobby.gameState
-            })));
-            continue;
-        }
-    }
+
+        // Check win conditions
+        checkWinConditions(lobby);
+        if (lobby.gameState !== 'PLAYING') continue;
 
         // Chaos mode events
         if (lobby.gameMode === 'chaos_rounds') {
-        // Every 15 seconds, trigger a random chaos event
-        if (now % 15000 < 35) {
-            const chaosEvents = ['random_gravity', 'speed_boost', 'damage_boost', 'knockback_boost'];
-            const event = chaosEvents[Math.floor(Math.random() * chaosEvents.length)];
-            
-            Object.values(players).forEach(player => {
-                if (event === 'random_gravity') {
-                    player.velocity = player.velocity || { x: 0, y: 0 };
-                    player.velocity.y = (Math.random() - 0.5) * 20;
-                } else if (event === 'speed_boost') {
-                    player.speedMult = (player.speedMult || 1.0) * 1.5;
-                    setTimeout(() => { 
-                        if (players[player.id]) {
-                            const char = ROSTER.find(c => c.id === player.characterId);
-                            players[player.id].speedMult = char ? char.speedMult : 1.0;
-                        }
-                    }, 5000);
-                } else if (event === 'damage_boost') {
-                    player.isSuperArmor = true;
-                    setTimeout(() => { 
-                        if (players[player.id]) {
-                            players[player.id].isSuperArmor = false;
-                        }
-                    }, 5000);
-                } else if (event === 'knockback_boost') {
-                    player.velocity = player.velocity || { x: 0, y: 0 };
-                    player.velocity.x = (Math.random() - 0.5) * 30;
-                    player.velocity.y = -15;
+            if (now % 15000 < 35) {
+                const chaosEvents = ['random_gravity', 'speed_boost', 'damage_boost', 'knockback_boost'];
+                const event = chaosEvents[Math.floor(Math.random() * chaosEvents.length)];
+                
+                for (const playerId of lobbyPlayerIds) {
+                    const player = players[playerId];
+                    if (!player) continue;
+                    if (event === 'random_gravity') {
+                        player.velocity = player.velocity || { x: 0, y: 0 };
+                        player.velocity.y = (Math.random() - 0.5) * 20;
+                    } else if (event === 'speed_boost') {
+                        player.speedMult = (player.speedMult || 1.0) * 1.5;
+                        setTimeout(() => { 
+                            if (players[player.id]) {
+                                const char = ROSTER.find(c => c.id === player.characterId);
+                                players[player.id].speedMult = char ? char.speedMult : 1.0;
+                            }
+                        }, 5000);
+                    } else if (event === 'damage_boost') {
+                        player.isSuperArmor = true;
+                        setTimeout(() => { 
+                            if (players[player.id]) {
+                                players[player.id].isSuperArmor = false;
+                            }
+                        }, 5000);
+                    } else if (event === 'knockback_boost') {
+                        player.velocity = player.velocity || { x: 0, y: 0 };
+                        player.velocity.x = (Math.random() - 0.5) * 30;
+                        player.velocity.y = -15;
+                    }
                 }
-            });
-            
-            io.to(lobby.id).emit('chaosEvent', { event });
+                
+                io.to(lobby.id).emit('chaosEvent', { event });
+            }
         }
-    }
-        
+
         // Check time limit
         if (lobby.matchSettings.timeLimit && lobby.matchStartTime) {
-        const elapsed = (now - lobby.matchStartTime) / 1000;
-        if (elapsed >= lobby.matchSettings.timeLimit) {
-            // Time's up - determine winner by score
-            const playerScores = Object.values(players).map(p => ({ id: p.id, score: p.score }));
-            if (playerScores.length > 0) {
-                const sortedScores = playerScores.sort((a, b) => b.score - a.score);
-                lobby.gameState = 'LOBBY';
-                lobby.matchEndTime = Date.now();
-                lobby.matchStartTime = undefined;
-                // Clear players from the game and reset lobby players
-                for (const playerId of Object.keys(players)) {
-                    delete players[playerId];
-                }
-                for (const playerId of Object.keys(lobby.players)) {
-                    lobby.players[playerId].isReady = false;
-                    lobby.players[playerId].characterId = null;
-                    // Reset roster index for roster choice
-                    if (lobby.gameMode === 'roster_choice') {
-                        lobby.players[playerId].currentRosterIndex = 0;
-                    }
-                }
-                io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'time_limit' });
-                io.to(lobby.id).emit('lobbyUpdate', lobby);
-                io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-                    id: lobby.id,
-                    name: lobby.name,
-                    isPrivate: lobby.isPrivate,
-                    gameMode: lobby.gameMode,
-                    playerCount: Object.keys(lobby.players).length,
-                    gameState: lobby.gameState
-                })));
-                continue;
-            }
-        }
-    }
-
-        // Process DoTs, Safety Warp, and Wombo Combo
-        for (const player of Object.values(players)) {
-        if (player.isEliminated) continue;
-        if (player.womboTimer && player.womboTimer > now) {
-            // Hit every 0.3s (we can just use dots system or apply here directly if tick matches)
-            // Actually, just check if frame count is multiple of 9 (30fps * 0.3 = 9 frames)
-            // But we don't have frame count. Let's just use now % 300 < 33
-            if (now % 300 < 35) {
-                for (const target of Object.values(players)) {
-                    if (target.id === player.id) continue;
-                    const dist = Math.hypot(target.x - player.x, target.y - player.y);
-                    if (dist < 80) {
-                        applyDamage(target, 5, player.id);
-                    }
+            const elapsed = (now - lobby.matchStartTime) / 1000;
+            if (elapsed >= lobby.matchSettings.timeLimit) {
+                const playerScores = Array.from(lobbyPlayerIds).map(id => ({ id, score: players[id]?.score || 0 }));
+                if (playerScores.length > 0) {
+                    const sortedScores = playerScores.sort((a, b) => b.score - a.score);
+                    endLobbyMatch(lobby, sortedScores[0].id, 'time_limit');
+                    continue;
                 }
             }
         }
 
-        // Pinedo attack1 damage window
-        if (player.characterId === 'pinedo' && player.pinedoState === 'attack1' &&
-            !player.pinedoAttack1Hit &&
-            player.pinedoAttack1DmgStart && now >= player.pinedoAttack1DmgStart &&
-            player.pinedoAttack1DmgEnd && now < player.pinedoAttack1DmgEnd) {
-            player.pinedoAttack1Hit = true;
-            // Hitbox derived from 128px sprite space: x=47,y=65,w=26,h=52 scaled to 50px game unit
-            // scale = 50/128 ≈ 0.39 — add game-feel padding
-            const hbOffsetX = 18; // 47 * 50/128
-            const hbOffsetY = 25; // 65 * 50/128
-            const hbW = 30;       // 26 * 50/128 + padding
-            const hbH = 30;       // 52 * 50/128 + padding
-            // Sprites face LEFT — attack extends to the right of sprite
-            // Facing left: hitbox is on the right side (front); facing right: mirror to left side
-            const hitBox = {
-                x: player.facing === 'left'
-                    ? player.x + hbOffsetX
-                    : player.x + player.width - hbOffsetX - hbW,
-                y: player.y + hbOffsetY,
-                width: hbW,
-                height: hbH
-            };
-            for (const target of Object.values(players)) {
-                if (target.id === player.id) continue;
-                if (target.x < hitBox.x + hitBox.width && target.x + target.width > hitBox.x &&
-                    target.y < hitBox.y + hitBox.height && target.y + target.height > hitBox.y) {
-                    const dmg = Math.min(30, target.maxHealth * 0.15);
-                    applyDamage(target, dmg, player.id);
-                    if (target.characterId !== 'wax') {
-                        io.to(target.id).emit('applyKnockback', { vx: player.facing === 'left' ? -12 : 12, vy: -10, stunFrames: 25 });
-                    }
-                }
-            }
-        }
+        // Process DoTs, Safety Warp, and status for players in this lobby
+        for (const playerId of lobbyPlayerIds) {
+            const player = players[playerId];
+            if (!player || player.isEliminated) continue;
 
-        // Pinedo attack3 damaging frames — run for fixed duration, no movement cancel
-        if (player.characterId === 'pinedo' && player.pinedoState === 'attack3main' &&
-            player.pinedoAttack3End && now < player.pinedoAttack3End) {
-            const cx = player.x + player.width / 2;
-            const cy = player.y + player.height / 2;
-            if (now % 150 < 35) {
-                for (const target of Object.values(players)) {
-                    if (target.id === player.id) continue;
-                    const td = Math.hypot(target.x + target.width / 2 - cx, target.y + target.height / 2 - cy);
-                    if (td < 80) {
-                        applyDamage(target, 8, player.id);
-                        if (target.characterId !== 'wax') {
-                            io.to(target.id).emit('applyKnockback', { vx: (target.x > cx ? 4 : -4), vy: -3, stunFrames: 5 });
+            if (player.womboTimer && player.womboTimer > now) {
+                if (now % 300 < 35) {
+                    for (const targetId of lobbyPlayerIds) {
+                        if (targetId === player.id) continue;
+                        const target = players[targetId];
+                        if (!target) continue;
+                        const dist = Math.hypot(target.x - player.x, target.y - player.y);
+                        if (dist < 80) {
+                            applyDamage(target, 5, player.id);
                         }
                     }
                 }
             }
-        } else if (player.characterId === 'pinedo' && player.pinedoState === 'attack3main' &&
-            player.pinedoAttack3End && now >= player.pinedoAttack3End) {
-            player.pinedoState = 'idle';
-            io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
-        }
-        
-        // Fire wall damage
-        for (const wall of Object.values(walls)) {
-            if (wall.type === 'cocoFountain' && wall.ownerId !== player.id) {
-                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
-                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
-                    if (now % 1000 < 35) applyDamage(player, 10, wall.ownerId);
-                    player.velocity = player.velocity || { x: 0, y: 0 };
-                    player.velocity.y = -12; // Push upward
-                }
-            }
-            if (wall.type === 'fire' && wall.ownerId !== player.id && player.characterId !== 'wisp') {
-                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
-                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
-                    if (now % 500 < 35) {
-                        applyDamage(player, 5, wall.ownerId, true);
-                    }
-                }
-            } else if (wall.type === 'bramble' && wall.ownerId !== player.id) {
-                if (player.brambleImmune && player.brambleImmune > now) continue;
-                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
-                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
-                    applyDamage(player, 15, wall.ownerId);
-                    io.to(player.id).emit('applyKnockback', { vx: 0, vy: -5, stunFrames: 60 });
-                    delete walls[wall.id];
-                }
-            } else if (wall.type === 'bloodCloud' && wall.ownerId !== player.id) {
-                if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
-                    player.y < wall.y + wall.height && player.y + player.height > wall.y) {
-                    if (now % 500 < 35) {
-                        applyDamage(player, 8, wall.ownerId, true);
-                    }
-                }
-            }
-        }
 
-        if (player.dots && player.dots.length > 0) {
-            for (let i = player.dots.length - 1; i >= 0; i--) {
-                const dot = player.dots[i];
-                if (now >= dot.nextTick) {
-                    const beforeHp = player.health;
-                    applyDamage(player, dot.damagePerTick, dot.ownerId, true);
-                    dot.ticksLeft--;
-                    dot.nextTick = now + 500;
-                    if (player.health <= 0 || (beforeHp > 0 && player.health === player.maxHealth)) {
-                        // Dead (health reset to maxHealth by applyDamage, or died)
+            // Pinedo attack1 damage window
+            if (player.characterId === 'pinedo' && player.pinedoState === 'attack1' &&
+                !player.pinedoAttack1Hit &&
+                player.pinedoAttack1DmgStart && now >= player.pinedoAttack1DmgStart &&
+                player.pinedoAttack1DmgEnd && now < player.pinedoAttack1DmgEnd) {
+                player.pinedoAttack1Hit = true;
+                const hbOffsetX = 18;
+                const hbOffsetY = 25;
+                const hbW = 30;
+                const hbH = 30;
+                const hitBox = {
+                    x: player.facing === 'left'
+                        ? player.x + hbOffsetX
+                        : player.x + player.width - hbOffsetX - hbW,
+                    y: player.y + hbOffsetY,
+                    width: hbW,
+                    height: hbH
+                };
+                for (const targetId of lobbyPlayerIds) {
+                    if (targetId === player.id) continue;
+                    const target = players[targetId];
+                    if (!target) continue;
+                    if (target.x < hitBox.x + hitBox.width && target.x + target.width > hitBox.x &&
+                        target.y < hitBox.y + hitBox.height && target.y + target.height > hitBox.y) {
+                        const dmg = Math.min(30, target.maxHealth * 0.15);
+                        applyDamage(target, dmg, player.id);
+                        if (target.characterId !== 'wax') {
+                            io.to(target.id).emit('applyKnockback', { vx: player.facing === 'left' ? -12 : 12, vy: -10, stunFrames: 25 });
+                        }
+                    }
+                }
+            }
+
+            // Pinedo attack3 main
+            if (player.characterId === 'pinedo' && player.pinedoState === 'attack3main' &&
+                player.pinedoAttack3End && now < player.pinedoAttack3End) {
+                const cx = player.x + player.width / 2;
+                const cy = player.y + player.height / 2;
+                if (now % 150 < 35) {
+                    for (const targetId of lobbyPlayerIds) {
+                        if (targetId === player.id) continue;
+                        const target = players[targetId];
+                        if (!target) continue;
+                        const td = Math.hypot(target.x + target.width / 2 - cx, target.y + target.height / 2 - cy);
+                        if (td < 80) {
+                            applyDamage(target, 8, player.id);
+                            if (target.characterId !== 'wax') {
+                                io.to(target.id).emit('applyKnockback', { vx: (target.x > cx ? 4 : -4), vy: -3, stunFrames: 5 });
+                            }
+                        }
+                    }
+                }
+            } else if (player.characterId === 'pinedo' && player.pinedoState === 'attack3main' &&
+                player.pinedoAttack3End && now >= player.pinedoAttack3End) {
+                player.pinedoState = 'idle';
+                io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
+            }
+
+            // Fire wall damage
+            for (const [wallId, wall] of Object.entries(walls)) {
+                const wallLobbyId = wall.lobbyId || (wall.ownerId ? playerLobbyMap[wall.ownerId] : undefined);
+                if (wallLobbyId && wallLobbyId !== lobbyId) continue;
+
+                if (wall.type === 'cocoFountain' && wall.ownerId !== player.id) {
+                    if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                        player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                        if (now % 1000 < 35) applyDamage(player, 10, wall.ownerId);
+                        player.velocity = player.velocity || { x: 0, y: 0 };
+                        player.velocity.y = -12;
+                    }
+                }
+                if (wall.type === 'fire' && wall.ownerId !== player.id && player.characterId !== 'wisp') {
+                    if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                        player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                        if (now % 500 < 35) {
+                            applyDamage(player, 5, wall.ownerId, true);
+                        }
+                    }
+                } else if (wall.type === 'bramble' && wall.ownerId !== player.id) {
+                    if (player.brambleImmune && player.brambleImmune > now) continue;
+                    if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                        player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                        applyDamage(player, 15, wall.ownerId);
+                        io.to(player.id).emit('applyKnockback', { vx: 0, vy: -5, stunFrames: 60 });
+                        delete walls[wall.id];
+                    }
+                } else if (wall.type === 'bloodCloud' && wall.ownerId !== player.id) {
+                    if (player.x < wall.x + wall.width && player.x + player.width > wall.x &&
+                        player.y < wall.y + wall.height && player.y + player.height > wall.y) {
+                        if (now % 500 < 35) {
+                            applyDamage(player, 8, wall.ownerId, true);
+                        }
+                    }
+                }
+            }
+
+            if (player.dots && player.dots.length > 0) {
+                for (let i = player.dots.length - 1; i >= 0; i--) {
+                    const dot = player.dots[i];
+                    if (now >= dot.nextTick) {
+                        applyDamage(player, dot.damagePerTick, dot.ownerId, true);
+                        dot.ticksLeft--;
+                        dot.nextTick = now + 500;
+                        if (player.health <= 0 || !players[player.id]) {
+                            if (dot.ticksLeft <= 0 && player.dots) player.dots.splice(i, 1);
+                            continue;
+                        }
                         if (dot.ticksLeft <= 0) player.dots.splice(i, 1);
-                        continue;
                     }
-                    if (dot.ticksLeft <= 0) player.dots.splice(i, 1);
+                }
+            }
+
+            if (player.safetyWarpState === 'charging' && player.safetyWarpTimer && now >= player.safetyWarpTimer) {
+                player.safetyWarpState = 'ready';
+                io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'warpReady' });
+            }
+
+            if (player.inkSlowed && now >= player.inkSlowed) {
+                player.inkSlowed = 0;
+                const char = ROSTER.find(c => c.id === player.characterId);
+                player.speedMult = char ? char.speedMult : 1.0;
+                io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'inkSlowEnd' });
+            }
+
+            // Rica Grab Timeout
+            if (player.grabTimer && player.grabbedPlayerId && now > player.grabTimer) {
+                const target = players[player.grabbedPlayerId];
+                if (target) {
+                    target.health -= target.maxHealth * 0.25;
+                    player.grabbedPlayerId = null;
+                    target.grabbedByPlayerId = null;
+                    player.grabTimer = 0;
+                    player.throwCooldown = Date.now() + 5000;
+                    io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'ricaSlam' });
+                    io.to(target.id).emit('applyKnockback', { vx: 0, vy: 20, stunFrames: 30 });
+                    if (target.health <= 0) {
+                        handlePlayerDeath(target, player.id, 'ricaSlam');
+                    } else {
+                        io.to(lobbyId).emit('playerHealthChanged', { id: target.id, health: target.health });
+                    }
+                }
+            }
+
+            // Rica Charge Timeout
+            if (player.chargeState === 'charging' && player.chargeTimer && now >= player.chargeTimer) {
+                player.chargeState = 'running';
+                io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'ricaChargeRun' });
+            }
+
+            // Chester Heal
+            if (player.healTimer && now < player.healTimer) {
+                if (now - (player.healLastHit || 0) > 5000) {
+                    player.health = Math.min(player.maxHealth, player.health + 20);
+                    player.healTimer = 0;
+                    io.to(lobbyId).emit('playerHealthChanged', { id: player.id, health: player.health });
+                    io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterHealed' });
                 }
             }
         }
-
-        if (player.safetyWarpState === 'charging' && player.safetyWarpTimer && now >= player.safetyWarpTimer) {
-            player.safetyWarpState = 'ready';
-            io.emit('playerEffect', { id: player.id, effect: 'warpReady' });
-        }
-
-        // Restore speed after ink slow expires
-        if (player.inkSlowed && now >= player.inkSlowed) {
-            player.inkSlowed = 0;
-            const char = ROSTER.find(c => c.id === player.characterId);
-            player.speedMult = char ? char.speedMult : 1.0;
-            io.emit('playerEffect', { id: player.id, effect: 'inkSlowEnd' });
-        }
-
-        // Rica Grab Timeout
-        if (player.grabTimer && player.grabbedPlayerId && now > player.grabTimer) {
-             const target = players[player.grabbedPlayerId];
-             if (target) {
-                  target.health -= target.maxHealth * 0.25;
-                  player.grabbedPlayerId = null;
-                  target.grabbedByPlayerId = null;
-                  player.grabTimer = 0;
-                  player.throwCooldown = Date.now() + 5000;
-                  io.emit('playerEffect', { id: player.id, effect: 'ricaSlam' });
-                  io.to(target.id).emit('applyKnockback', { vx: 0, vy: 20, stunFrames: 30 });
-                  if (target.health <= 0) {
-                     target.health = target.maxHealth;
-                     target.x = Math.random() * 400 + 312;
-                     target.y = 50;
-                     player.score += 1;
-                     io.emit('playerRespawned', target);
-                     io.emit('scoreUpdated', { id: player.id, score: player.score });
-                  } else {
-                     io.emit('playerHealthChanged', { id: target.id, health: target.health });
-                  }
-             }
-        }
-        
-        // Rica Charge Timeout
-        if (player.chargeState === 'charging' && player.chargeTimer && now >= player.chargeTimer) {
-            player.chargeState = 'running';
-            io.emit('playerEffect', { id: player.id, effect: 'ricaChargeRun' });
-        }
-
-        // Chester Heal
-        if (player.healTimer && now < player.healTimer) {
-             if (now - (player.healLastHit || 0) > 5000) {
-                  player.health = Math.min(player.maxHealth, player.health + 20);
-                  player.healTimer = 0; // consumed
-                  io.emit('playerHealthChanged', { id: player.id, health: player.health });
-                  io.emit('playerEffect', { id: player.id, effect: 'chesterHealed' });
-             }
-        }
-    }
 
         // Process Walls
         for (const [id, wall] of Object.entries(walls)) {
@@ -1052,11 +1068,29 @@ setInterval(() => {
             }
         }
 
-        io.emit('entitiesUpdate', { 
-            projectiles: { ...projectiles }, 
-            walls: { ...walls }, 
-            zones: { ...zones },
-            drones: { ...drones }
+        const lobbyProjectiles: Record<string, Projectile> = {};
+        const lobbyWalls: Record<string, Wall> = {};
+        const lobbyZones: Record<string, Zone> = {};
+        const lobbyDrones: Record<string, Drone> = {};
+
+        for (const [id, proj] of Object.entries(projectiles)) {
+            if (proj.lobbyId === lobbyId || playerLobbyMap[proj.ownerId] === lobbyId) lobbyProjectiles[id] = proj;
+        }
+        for (const [id, wall] of Object.entries(walls)) {
+            if (wall.lobbyId === lobbyId || (wall.ownerId && playerLobbyMap[wall.ownerId] === lobbyId)) lobbyWalls[id] = wall;
+        }
+        for (const [id, zone] of Object.entries(zones)) {
+            if (zone.lobbyId === lobbyId || playerLobbyMap[zone.ownerId] === lobbyId) lobbyZones[id] = zone;
+        }
+        for (const [id, drone] of Object.entries(drones)) {
+            if (drone.lobbyId === lobbyId || playerLobbyMap[drone.ownerId] === lobbyId) lobbyDrones[id] = drone;
+        }
+
+        io.to(lobbyId).emit('entitiesUpdate', { 
+            projectiles: lobbyProjectiles, 
+            walls: lobbyWalls, 
+            zones: lobbyZones,
+            drones: lobbyDrones
         });
     }
 }, 1000 / 30);
@@ -1203,36 +1237,24 @@ io.on('connection', (socket) => {
       delete lobby.players[socket.id];
       delete playerLobbyMap[socket.id];
       
-      // Check if lobby is now empty or in playing state
-      if (Object.keys(lobby.players).length === 0 || lobby.gameState === 'PLAYING') {
+      const remainingCount = Object.keys(lobby.players).length;
+      if (remainingCount === 0) {
         delete lobbies[lobby.id];
         io.emit('lobbyClosed', { lobbyId: lobby.id });
-        io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-          id: lobby.id,
-          name: lobby.name,
-          isPrivate: lobby.isPrivate,
-          gameMode: lobby.gameMode,
-          playerCount: Object.keys(lobby.players).length,
-          gameState: lobby.gameState
-        })));
-        return;
-      }
-      
-      // Transfer admin if admin left
-      if (lobby.adminId === socket.id) {
-        const remainingPlayers = Object.keys(lobby.players);
-        if (remainingPlayers.length > 0) {
-          lobby.adminId = remainingPlayers[0];
+        broadcastAvailableLobbies();
+      } else {
+        if (lobby.adminId === socket.id) {
+          lobby.adminId = Object.keys(lobby.players)[0];
           io.to(lobby.id).emit('adminChanged', { newAdminId: lobby.adminId });
         }
+        io.to(lobby.id).emit('lobbyUpdate', lobby);
+        io.to(lobby.id).emit('playerDisconnected', socket.id);
+        broadcastAvailableLobbies();
       }
-      
-      io.to(lobby.id).emit('lobbyUpdate', lobby);
     }
 
     if (players[socket.id]) {
       delete players[socket.id];
-      io.emit('playerDisconnected', socket.id);
     }
   });
 
@@ -1268,13 +1290,6 @@ io.on('connection', (socket) => {
     
     player.lastActive = Date.now();
     
-    // Validate roster size
-    const rosterSize = lobby.matchSettings.rosterSize || 5;
-    if (roster.length !== rosterSize) {
-      socket.emit('rosterError', { message: `Roster must have exactly ${rosterSize} characters` });
-      return;
-    }
-    
     // Validate all characters exist
     const validCharacters = roster.every(charId => ROSTER.some(c => c.id === charId));
     if (!validCharacters) {
@@ -1283,8 +1298,10 @@ io.on('connection', (socket) => {
     }
     
     player.rosterChoice = roster;
-    player.characterId = roster[0]; // Set first character as initial
-    player.isReady = false;
+    if (roster.length > 0) {
+      player.characterId = roster[0]; // Set first character as initial
+    }
+    player.isReady = false; // Reset ready state when roster changes
     io.to(lobby.id).emit('lobbyUpdate', lobby);
   });
 
@@ -1518,16 +1535,13 @@ io.on('connection', (socket) => {
       });
     }
     
-    io.to(lobby.id).emit('gameStart', { players, lobby });
+    const lobbyPlayersMap: Record<string, Player> = {};
+    for (const pId of Object.keys(lobby.players)) {
+      if (players[pId]) lobbyPlayersMap[pId] = players[pId];
+    }
+    io.to(lobby.id).emit('gameStart', { players: lobbyPlayersMap, lobby });
     io.to(lobby.id).emit('lobbyUpdate', lobby);
-    io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-      id: lobby.id,
-      name: lobby.name,
-      isPrivate: lobby.isPrivate,
-      gameMode: lobby.gameMode,
-      playerCount: Object.keys(lobby.players).length,
-      gameState: lobby.gameState
-    })));
+    broadcastAvailableLobbies();
   });
 
   socket.on('toggleReady', () => {
@@ -1571,8 +1585,10 @@ io.on('connection', (socket) => {
       players[socket.id].isStunned = movementData.isStunned;
       players[socket.id].isFastFalling = movementData.isFastFalling;
 
+      const lobby = getLobbyByPlayerId(socket.id);
+
       // Sync Mirage movement state for sprite
-      if (players[socket.id].characterId === 'mirage') {
+      if (players[socket.id].characterId === 'mirage' && lobby) {
           const isMoving = Math.abs(movementData.velocity.x) > 0.5;
           const wasMoving = players[socket.id].mirageMoving;
           if (isMoving !== wasMoving) {
@@ -1582,45 +1598,25 @@ io.on('connection', (socket) => {
               if (!inAttack) {
                   const newState = isMoving ? 'movestart' : 'movestop';
                   players[socket.id].mirageState = newState;
-                  io.emit('playerEffect', { id: socket.id, effect: 'mirageState', state: newState });
+                  io.to(lobby.id).emit('playerEffect', { id: socket.id, effect: 'mirageState', state: newState });
               }
           }
       }
       
-      if (players[socket.id].grabbedPlayerId) {
+      if (players[socket.id].grabbedPlayerId && lobby) {
           const grabbedId = players[socket.id].grabbedPlayerId;
           if (grabbedId && players[grabbedId]) {
               players[grabbedId].x = players[socket.id].x + (players[socket.id].facing === 'right' ? players[socket.id].width : -players[grabbedId].width);
               players[grabbedId].y = players[socket.id].y;
-              io.emit('forcePosition', { id: grabbedId, x: players[grabbedId].x, y: players[grabbedId].y });
+              io.to(lobby.id).emit('forcePosition', { id: grabbedId, x: players[grabbedId].x, y: players[grabbedId].y });
           }
       }
       
       // Void death check
       if (players[socket.id].y > 800) {
-        players[socket.id].health = players[socket.id].maxHealth;
-        players[socket.id].x = Math.random() * 400 + 312;
-        players[socket.id].y = 50;
-        players[socket.id].velocity = { x: 0, y: 0 };
-        players[socket.id].isGrabbingLedge = false;
-        
-        const p = players[socket.id];
-        if (p.lastHitBy && Date.now() - p.lastHitBy.time < 5000) {
-            const attacker = players[p.lastHitBy.id];
-            if (attacker) {
-                attacker.score += 1;
-                io.emit('scoreUpdated', { id: attacker.id, score: attacker.score });
-            }
-        } else {
-            p.score = Math.max(0, p.score - 1); // Lose a point for falling
-        }
-        p.lastHitBy = undefined;
-        
-        io.emit('playerRespawned', players[socket.id]);
-        io.emit('scoreUpdated', { id: socket.id, score: players[socket.id].score });
-      } else {
-        // Broadcast to others
-        socket.broadcast.emit('playerMoved', players[socket.id]);
+        handlePlayerDeath(players[socket.id], undefined, 'void');
+      } else if (lobby) {
+        socket.to(lobby.id).emit('playerMoved', players[socket.id]);
       }
     }
   });
@@ -1628,7 +1624,10 @@ io.on('connection', (socket) => {
   socket.on('playerAttack', (attackData) => {
     if (players[socket.id]) {
       players[socket.id].isAttacking = attackData.isAttacking;
-      socket.broadcast.emit('playerAttacked', players[socket.id]);
+      const lobby = getLobbyByPlayerId(socket.id);
+      if (lobby) {
+        socket.to(lobby.id).emit('playerAttacked', players[socket.id]);
+      }
     }
   });
   

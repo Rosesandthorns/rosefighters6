@@ -1,5 +1,4 @@
 import rivalThemeUrl from './assets/rival_theme.mp3';
-import rivalThemeUrl from './assets/rival_theme.mp3';
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
@@ -134,23 +133,23 @@ interface Drone {
 }
 
 const ROSTER = [
-  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, category: 'Mirage Park' },
-  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, category: 'Mirage Park' },
-  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, category: 'Mirage Park' },
-  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, category: 'Mirage Park' },
-  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, category: 'Mirage Park' },
-  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, category: 'Mirage Park' },
-  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, category: 'Mirage Park' },
-  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, category: 'Mirage Park' },
-  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, category: 'Mirage Park' },
-  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, category: 'Mirage Park' },
-  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, category: 'Rose Valley' },
-  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, category: 'Rose Valley' },
-  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, category: 'Project Defence' },
-  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, category: 'Project Defence' },
-  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, category: 'Project Defence' },
-  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, category: 'Vantage' },
-  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, category: 'Vantage' }
+  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park' },
+  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park' },
+  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park' },
+  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park' },
+  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park' },
+  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park' },
+  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park' },
+  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park' },
+  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
+  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park' },
+  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
+  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
+  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
+  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence' },
+  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence' },
+  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage' },
+  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage' }
 ];
 
 const GRAVITY = 1.2;
@@ -194,6 +193,7 @@ export default function GameCanvas() {
   const stunTimerRef = useRef<number>(0);
   const particlesRef = useRef<Particle[]>([]);
   const kaelenMovingRef = useRef<boolean>(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // ── Tech system refs ──────────────────────────────────────────────────────
   const techWindowRef    = useRef<number>(0);      // frames left in tech window after landing
@@ -288,7 +288,7 @@ export default function GameCanvas() {
   useEffect(() => {
     // Connect to same host, forcing websocket transport to avoid load balancing / polling issues
     // In production, will connect to the deployed server URL
-    const serverUrl = import.meta.env.PROD ? window.location.origin : 'http://localhost:3000';
+    const serverUrl = (import.meta as any).env?.PROD ? window.location.origin : 'http://localhost:3000';
     const newSocket = io(serverUrl, { transports: ['websocket'] });
     setSocket(newSocket);
 
@@ -435,7 +435,12 @@ export default function GameCanvas() {
     });
 
     newSocket.on('rosterError', (data: { message: string }) => {
-      alert(data.message);
+      // Only show error when trying to ready up with incomplete roster
+      console.log('Roster error:', data.message);
+    });
+
+    newSocket.on('characterSelectError', (data: { message: string }) => {
+      console.log('Character select error:', data.message);
     });
 
     newSocket.on('applyKnockback', (data: { vx: number, vy: number, stunFrames: number }) => {
@@ -721,25 +726,51 @@ export default function GameCanvas() {
   }, []);
 
   useEffect(() => {
-    let audio: HTMLAudioElement | null = null;
     if (screen === 'game') {
-      audio = new Audio(rivalThemeUrl);
-      audio.loop = true;
-      audio.volume = 0.15;
-      audio.play().catch(e => {
-        if (e.name !== 'NotSupportedError' && !e.message.includes('supported source was found')) {
-          console.error("Audio play failed:", e);
-        } else {
-          console.warn("Audio file could not be decoded. The mp3 file may be corrupted.");
-        }
-      });
-    }
-    return () => {
-      if (audio) {
-        audio.pause();
-        audio.currentTime = 0;
+      if (!audioRef.current) {
+        audioRef.current = new Audio(rivalThemeUrl);
+        audioRef.current.loop = true;
+        audioRef.current.volume = 0.15;
       }
-    };
+      const audio = audioRef.current;
+      audio.currentTime = 0;
+      
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(e => {
+          if (e.name !== 'NotSupportedError' && !e.message?.includes('supported source was found')) {
+            console.error("Audio play failed:", e);
+          }
+        });
+      }
+
+      const handleEnded = () => {
+        if (audioRef.current && screen === 'game') {
+          audioRef.current.currentTime = 0;
+          audioRef.current.play().catch(() => {});
+        }
+      };
+
+      const handlePause = () => {
+        if (audioRef.current && screen === 'game' && audioRef.current.paused) {
+          audioRef.current.play().catch(() => {});
+        }
+      };
+
+      audio.addEventListener('ended', handleEnded);
+      audio.addEventListener('pause', handlePause);
+
+      return () => {
+        audio.removeEventListener('ended', handleEnded);
+        audio.removeEventListener('pause', handlePause);
+        audio.pause();
+      };
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    }
   }, [screen]);
 
   // Match timer
@@ -1355,17 +1386,19 @@ export default function GameCanvas() {
       });
 
       // Keep playersList in sync every frame so DOM sprite overlay updates position
-      setPlayersList(Object.values(playersRef.current));
+      const allPlayers = Object.values(playersRef.current) as Player[];
+      setPlayersList(allPlayers);
       // Keep Pinedo projectiles in sync for DOM spinning head overlay
       const pinedoOwners = new Set(
-        Object.values(playersRef.current).filter(p => p.characterId === 'pinedo').map(p => p.id)
+        allPlayers.filter(p => p.characterId === 'pinedo').map(p => p.id)
       );
-      const booms = Object.values(entitiesRef.current.projectiles)
+      const allProjectiles = Object.values(entitiesRef.current.projectiles) as Projectile[];
+      const booms = allProjectiles
         .filter(pr => pr.type === 'boomerang' && pinedoOwners.has(pr.ownerId))
         .map(pr => ({ id: pr.id, x: pr.x, y: pr.y }));
       setPinedoProjectiles(booms);
       // Update Mirage overlay with trail
-      const miragePlayers = Object.values(playersRef.current).filter(p => p.characterId === 'mirage');
+      const miragePlayers = allPlayers.filter(p => p.characterId === 'mirage');
       if (miragePlayers.length > 0) {
         const mp = miragePlayers[0];
         const isMoving = (mp.mirageState === 'midflight' || mp.mirageState === 'movestart') && Math.abs(mp.velocity?.x || 0) > 0.5;
@@ -1555,7 +1588,7 @@ export default function GameCanvas() {
               ctx.lineTo(proj.x + (proj.vx > 0 ? 15 : -15), proj.y + 4);
               ctx.fill();
           } else if (proj.type === 'boomerang') {
-              const boomerangOwner = Object.values(playersRef.current).find(p => p.id === proj.ownerId);
+              const boomerangOwner = (Object.values(playersRef.current) as Player[]).find(p => p.id === proj.ownerId);
               if (boomerangOwner?.characterId === 'pinedo') {
                   // Rendered as DOM element (spinning CSS animation) — skip canvas draw
               } else {
@@ -2175,7 +2208,6 @@ export default function GameCanvas() {
                return (
                  <button 
                    key={char.id}
-                   disabled={isTaken && !isMe || me?.isSpectator}
                    onClick={() => {
                      if (currentLobby?.gameMode === 'roster_choice') {
                        // Roster choice logic
@@ -2195,7 +2227,6 @@ export default function GameCanvas() {
                        socket?.emit('selectCharacter', char.id);
                      }
                    }}
-                   disabled={currentLobby?.gameMode === 'roster_choice' ? false : (isTaken && !isMe || me?.isSpectator)}
                    className={`relative flex flex-col items-center justify-center bg-black/60 p-6 rounded-xl border-2 ${borderClass} ${opacityClass} hover:border-indigo-400 transition-all cursor-pointer`}
                  >
                     {char.id === 'pinedo' ? (
@@ -2222,18 +2253,20 @@ export default function GameCanvas() {
 
           <div className="flex justify-center gap-4 mt-auto">
             <button
-              disabled={
-                currentLobby?.gameMode === 'randomized' ? me?.isSpectator :
-                currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5 || me?.isSpectator) :
-                (!me?.characterId || me?.isSpectator)
-              }
-              onClick={() => socket?.emit('toggleReady')}
+              disabled={me?.isSpectator}
+              onClick={() => {
+                if (currentLobby?.gameMode === 'roster_choice' && localRoster.length !== 5) {
+                  alert('Roster must have exactly 5 characters');
+                  return;
+                }
+                if ((currentLobby?.gameMode === 'ffa' || currentLobby?.gameMode === 'chaos_rounds') && !me?.characterId) {
+                  alert('Must select a character first');
+                  return;
+                }
+                socket?.emit('toggleReady');
+              }}
               className={`px-12 py-4 rounded-full font-black text-2xl tracking-tighter italic uppercase transition-all
-                ${currentLobby?.gameMode === 'randomized' ? (me?.isSpectator) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
-                  isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white' :
-                currentLobby?.gameMode === 'roster_choice' ? (localRoster.length !== 5 || me?.isSpectator) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
-                  isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white' :
-                  (!me?.characterId || me?.isSpectator) ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
+                ${me?.isSpectator ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 
                   isReady ? 'bg-green-500 text-white shadow-[0_0_30px_rgba(34,197,94,0.6)]' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}
               `}
             >
