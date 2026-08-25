@@ -2085,21 +2085,27 @@ io.on('connection', (socket) => {
           const form = player.phantasmaForm || 'tv';
           if (form === 'tv') {
               if (data.ability === 1) {
-                  // Electronic Disturbance — EMP ring that reroutes projectiles
+                  // Electronic Disturbance — EMP ring that reroutes projectiles away from Phantasma
                   player.phantasmaState = 'attack1';
                   io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack1' });
-                  // Find and reroute all non-boomerang projectiles within 200px
                   const empX = player.x + player.width / 2;
                   const empY = player.y + player.height / 2;
                   for (const [pid, proj] of Object.entries(projectiles)) {
                       if (proj.type === 'boomerang') continue;
                       const dist = Math.hypot(proj.x - empX, proj.y - empY);
                       if (dist < 200) {
-                          const angle = Math.random() * Math.PI * 2;
-                          const speed = Math.hypot(proj.vx, proj.vy) || 10;
+                          // Calculate angle outward from Phantasma center + slight random spread
+                          let angle = Math.atan2(proj.y - empY, proj.x - empX);
+                          if (isNaN(angle) || (proj.x === empX && proj.y === empY)) {
+                              angle = Math.random() * Math.PI * 2;
+                          } else {
+                              angle += (Math.random() - 0.5) * (Math.PI / 3); // +/- 30 deg spread
+                          }
+                          const speed = 15;
                           proj.vx = Math.cos(angle) * speed;
                           proj.vy = Math.sin(angle) * speed;
-                          proj.ownerId = 'emp_rerouted_' + player.id; // anyone can now be hit by it
+                          proj.ownerId = player.id; // Phantasma owns the deflected projectile so it can't hit Phantasma
+                          proj.lobbyId = lobby.id;
                       }
                   }
                   io.to(lobby.id).emit('empEffect', { x: empX, y: empY });
