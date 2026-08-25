@@ -388,7 +388,8 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
     const currentIndex = lobbyPlayer?.currentRosterIndex || 0;
     const nextIndex = currentIndex + 1;
 
-    if (nextIndex < roster.length) {
+    // Roster mode ends when 3 characters on your side die (0 -> 1 -> 2, dies at index 3)
+    if (nextIndex < 3 && nextIndex < roster.length) {
       const nextCharId = roster[nextIndex];
       const char = ROSTER.find(c => c.id === nextCharId) || ROSTER[0];
       target.characterId = char.id;
@@ -986,6 +987,11 @@ setInterval(() => {
                     applyDamage(player, actualDamage, proj.ownerId);
                     if (player.health < beforeHp) {
                         if (player.characterId !== 'wax') io.to(player.id).emit('applyKnockback', { vx: proj.vx > 0 ? 10 : -10, vy: -5, stunFrames: 10 });
+                        // Zobo attack 1 (spider) grants 0.5s of I-frames (invincibility) to target
+                        if (proj.type === 'spider') {
+                            player.isInvincible = true;
+                            setTimeout(() => { if (players[player.id]) players[player.id].isInvincible = false; }, 500);
+                        }
                         // Lantern stun
                         if (proj.type === 'lantern') {
                             io.to(player.id).emit('applyKnockback', { vx: proj.vx > 0 ? 6 : -6, vy: -4, stunFrames: 30 });
@@ -1919,6 +1925,12 @@ io.on('connection', (socket) => {
           }
       } else if (player.characterId === 'coco') {
           if (data.ability === 1) {
+              // Cap Coco Attack 1 active chocolate bars to max 8 active per player at once
+              const activeChocolates = Object.values(projectiles).filter(p => p.ownerId === player.id && p.type === 'chocolate').length;
+              if (activeChocolates >= 8) {
+                  socket.emit('abilityCooldown', { ability: 1, frames: 15 });
+                  return;
+              }
               // 4 chocolate pieces — 2 left, 2 right — boomerang back to origin with spinning
               const cx = player.x + player.width / 2;
               const cy = player.y + player.height / 2;
