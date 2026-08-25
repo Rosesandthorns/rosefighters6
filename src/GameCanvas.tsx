@@ -27,10 +27,15 @@ interface Player {
   safetyWarpState?: 'none' | 'charging' | 'ready';
   dots?: { damagePerTick: number; ticksLeft: number; nextTick: number }[];
   activeEffects?: { [effectName: string]: number };
+  isInvincible?: boolean;
+  spawnLockoutEnd?: number;
   pinedoState?: 'idle' | 'run' | 'attack1' | 'attack2' | 'waiting' | 'attack3start' | 'attack3main';
   pinedoAttack3Center?: { x: number; y: number };
   mirageState?: 'idle' | 'movestart' | 'midflight' | 'movestop' | 'attack1' | 'attack2' | 'attack3' | 'attack3reverse';
   mirageMoving?: boolean;
+  phantasmaForm?: 'tv' | 'ghost';
+  phantasmaState?: 'idle' | 'attack1' | 'attack2' | 'attack3' | 'movestart' | 'movemid' | 'dash';
+  phantasmaOldTvs?: Record<string, { id: string; x: number; y: number; width: number; height: number; ownerId: string }>;
   cocoState?: 'idle' | 'walk' | 'attack13' | 'attack2';
   cocoRageActive?: boolean;
   zoboState?: 'idle' | 'walk' | 'attack1start' | 'attack1mid' | 'attack1return' | 'attack2' | 'attack3';
@@ -147,6 +152,7 @@ const ROSTER = [
   { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
   { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park' },
   { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park' },
+  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park' },
   { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
@@ -463,8 +469,14 @@ export default function GameCanvas() {
           player.speedMult = char.speedMult;
           player.maxHealth = char.hp;
           player.health = char.hp;
-          player.width = data.newCharacterId === 'wax' ? 100 : data.newCharacterId === 'mirage' ? 12 : data.newCharacterId === 'coco' ? 50 : 50;
-          player.height = data.newCharacterId === 'wax' ? 120 : data.newCharacterId === 'mirage' ? 40 : data.newCharacterId === 'coco' ? 80 : 50;
+          // Character-specific dimensions
+          const cid = data.newCharacterId;
+          player.width = cid === 'wax' ? 100 : cid === 'mirage' ? 12 : cid === 'coco' ? 50 : cid === 'orbo' ? 17 : cid === 'zobo' ? 6 : cid === 'phantasma' ? 45 : 50;
+          player.height = cid === 'wax' ? 120 : cid === 'mirage' ? 40 : cid === 'coco' ? 80 : cid === 'orbo' ? 44 : cid === 'zobo' ? 70 : cid === 'phantasma' ? 89 : 50;
+          // Reset Phantasma form on character change
+          player.phantasmaForm = 'tv';
+          player.phantasmaState = 'idle';
+          player.phantasmaOldTvs = {};
         }
       }
     });
@@ -695,7 +707,52 @@ export default function GameCanvas() {
                 }
             }, dur);
         }
+        if (data.effect === 'phantasmaState') {
+            p.phantasmaState = (data as any).state;
+        }
+        if (data.effect === 'phantasmaFormChange') {
+            const newForm = (data as any).form as 'tv' | 'ghost';
+            p.phantasmaForm = newForm;
+            if (newForm === 'ghost') {
+                p.width = 16; p.height = 109; p.speedMult = 2.0;
+            } else {
+                p.width = 45; p.height = 89; p.speedMult = 0.1;
+            }
+        }
+        if (data.effect === 'phantasmaFloat') {
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['phantasmaFloat'] = Date.now() + ((data as any).duration || 2000);
+        }
     });
+
+    newSocket.on('spawnOldTv', (data: { id: string; x: number; y: number; width: number; height: number; ownerId: string }) => {
+        const owner = playersRef.current[data.ownerId];
+        if (owner) {
+            owner.phantasmaOldTvs = owner.phantasmaOldTvs || {};
+            owner.phantasmaOldTvs[data.id] = data;
+        }
+    });
+
+    newSocket.on('destroyOldTv', (data: { id: string; ownerId: string }) => {
+        const owner = playersRef.current[data.ownerId];
+        if (owner && owner.phantasmaOldTvs) {
+            delete owner.phantasmaOldTvs[data.id];
+        }
+    });
+
+    newSocket.on('empEffect', (data: { x: number; y: number }) => {
+        // Spawn EMP ring particles
+        for (let i = 0; i < 16; i++) {
+            const angle = (i / 16) * Math.PI * 2;
+            particlesRef.current.push({ x: data.x, y: data.y, vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8, life: 25, maxLife: 25, color: '#38bdf8', size: 5, ignoreGravity: true });
+        }
+    });
+
+    newSocket.on('joltEffect', (data: { x: number; y: number }) => {
+        for (let i = 0; i < 12; i++) {
+            particlesRef.current.push({ x: data.x + (Math.random() - 0.5) * 30, y: data.y - Math.random() * 300, vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 4, life: 20, maxLife: 20, color: '#facc15', size: 4, ignoreGravity: true });
+        }
+    }); 
 
     newSocket.on('zoboArmUpdate', (data: { ownerId: string; x1: number; y1: number; x2: number; y2: number; active: boolean }) => {
       zoboArmRef.current[data.ownerId] = { x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, active: data.active };
@@ -758,6 +815,12 @@ export default function GameCanvas() {
     newSocket.on('playerRespawned', (player: Player) => {
        if (playersRef.current[player.id]) {
          playersRef.current[player.id] = player;
+         // Reset Phantasma form to TV on respawn
+         if (player.characterId === 'phantasma') {
+           playersRef.current[player.id].phantasmaForm = 'tv';
+           playersRef.current[player.id].phantasmaState = 'idle';
+           playersRef.current[player.id].phantasmaOldTvs = {};
+         }
          setPlayersList(Object.values(playersRef.current));
        }
     });
@@ -1104,9 +1167,29 @@ export default function GameCanvas() {
                 }
               }
 
-              // Jump
-              if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && myPlayer.isGrounded && !(myPlayer.activeEffects?.['ricaCharge'] > Date.now()) && myPlayer.characterId !== 'wax') {
-                myPlayer.velocity.y = JUMP_FORCE;
+              // Update Phantasma movement state
+              if (myPlayer.characterId === 'phantasma') {
+                const pAttack = ['attack1','attack2','attack3','dash'];
+                if (!pAttack.includes(myPlayer.phantasmaState || '')) {
+                  const nowMoving = moveTarget !== 0;
+                  if (myPlayer.phantasmaForm === 'ghost') {
+                    if (nowMoving) {
+                      if (myPlayer.phantasmaState === 'idle') myPlayer.phantasmaState = 'movestart';
+                      else if (myPlayer.phantasmaState === 'movestart') myPlayer.phantasmaState = 'movemid';
+                    } else {
+                      myPlayer.phantasmaState = 'idle';
+                    }
+                  } else {
+                    myPlayer.phantasmaState = 'idle'; // TV form always idle
+                  }
+                }
+              }
+
+              // Jump — TV form Phantasma cannot jump; Ghost form gets 30% higher jump
+              const isTvForm = myPlayer.characterId === 'phantasma' && (myPlayer.phantasmaForm || 'tv') === 'tv';
+              const jumpBoost = myPlayer.characterId === 'phantasma' && myPlayer.phantasmaForm === 'ghost' ? 1.3 : 1.0;
+              if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && myPlayer.isGrounded && !(myPlayer.activeEffects?.['ricaCharge'] > Date.now()) && myPlayer.characterId !== 'wax' && !isTvForm) {
+                myPlayer.velocity.y = JUMP_FORCE * jumpBoost;
                 myPlayer.isGrounded = false;
               }
 
@@ -1436,7 +1519,7 @@ export default function GameCanvas() {
           myPlayer.isFastFalling = false;
       }
       
-      // Pip Hover mechanics
+      // Pip/Nexus Hover
       if (myPlayer.characterId === 'pip' || myPlayer.characterId === 'nexus') {
           const platformTop = PLATFORMS[0].y;
           const floatOffset = myPlayer.characterId === 'nexus' ? 10 : 0;
@@ -1446,6 +1529,16 @@ export default function GameCanvas() {
               myPlayer.isGrounded = true;
               myPlayer.isFastFalling = false;
           }
+      }
+
+      // Phantasma Ghost Form — float above void (cap y at 750)
+      if (myPlayer.characterId === 'phantasma' && myPlayer.phantasmaForm === 'ghost') {
+          if (myPlayer.y > 720) {
+              myPlayer.y = 720;
+              myPlayer.velocity.y = Math.min(myPlayer.velocity.y, -2);
+          }
+          // Also reduce gravity effect in ghost form
+          if (!myPlayer.isGrounded) myPlayer.velocity.y *= 0.85;
       }
 
       // Side bounds (Blast zones)
@@ -1781,6 +1874,17 @@ export default function GameCanvas() {
                   ctx.fillStyle = '#cbd5e1';
                   ctx.beginPath(); ctx.arc(proj.x, proj.y, 10, 0, Math.PI * 2); ctx.fill();
               }
+          } else if (proj.type === 'poltergeist') {
+              // Glowing purple ghost orb
+              const grad = ctx.createRadialGradient(proj.x, proj.y, 2, proj.x, proj.y, 12);
+              grad.addColorStop(0, '#e9d5ff');
+              grad.addColorStop(0.6, '#a855f7');
+              grad.addColorStop(1, 'rgba(168,85,247,0)');
+              ctx.fillStyle = grad;
+              ctx.beginPath(); ctx.arc(proj.x, proj.y, 12, 0, Math.PI * 2); ctx.fill();
+              // Trailing sparkle
+              ctx.fillStyle = 'rgba(232,121,249,0.7)';
+              ctx.beginPath(); ctx.arc(proj.x - proj.vx * 0.3, proj.y - proj.vy * 0.3, 6, 0, Math.PI * 2); ctx.fill();
           }
       });
 
@@ -1889,8 +1993,8 @@ export default function GameCanvas() {
             ctx.restore();
         }
 
-        // ── Pinedo/Mirage/Coco/Orbo/Zobo: hidden from canvas — rendered as DOM overlay beneath ──────
-        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo') {
+        // ── Pinedo/Mirage/Coco/Orbo/Zobo/Phantasma: hidden from canvas — rendered as DOM overlay beneath ──────
+        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo' || player.characterId === 'phantasma') {
             hideStandardBody = true;
         }
 
@@ -2364,6 +2468,8 @@ export default function GameCanvas() {
                       <img src="/Zobo/ZoboIcon.png" alt="Zobo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : char.id === 'orbo' ? (
                       <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : char.id === 'phantasma' ? (
+                      <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
                     )}
@@ -2690,7 +2796,80 @@ export default function GameCanvas() {
                     }}
                   />
                 );
+              })}{/* Phantasma DOM sprite overlay */}
+              {playersList.filter(p => p.characterId === 'phantasma').map(p => {
+                const form = p.phantasmaForm || 'tv';
+                const state = p.phantasmaState || 'idle';
+                let src = '/Phantasma/PhantasmaTVIdle.gif';
+                if (form === 'tv') {
+                  if (state === 'attack1' || state === 'attack2') src = '/Phantasma/PhantasmaTVAttack2.gif';
+                  else if (state === 'attack3') src = '/Phantasma/PhantasmaTVAttack3.gif';
+                  else src = '/Phantasma/PhantasmaTVIdle.gif';
+                } else {
+                  if (state === 'attack1') src = '/Phantasma/PhantasmaGhostattack1.gif';
+                  else if (state === 'attack3') src = '/Phantasma/PhantasmaGhostAttack3.gif';
+                  else if (state === 'movestart') src = '/Phantasma/PhantasmaGhostMovestart.gif';
+                  else if (state === 'movemid' || state === 'dash') src = '/Phantasma/PhantasmaGhostMoveMid.gif';
+                  else src = '/Phantasma/PhantasmaGhostIdle.gif';
+                }
+
+                // Sprite canvas size = 128x128 for both forms; hitbox is embedded differently
+                // TV: hitbox offset from sprite top-left: x+41 y+20, w=45, h=89
+                // Ghost: hitbox starts at x+77 y+15, w=16, h=109; but images should line up at 0,0
+                const spriteW = 128;
+                const spriteH = 128;
+                // Position sprite so hitbox aligns with p.x, p.y
+                let left: number, top: number;
+                if (form === 'tv') {
+                  // Facing left: sprite top-left at (p.x - 41, p.y - 20)
+                  left = p.facing === 'left' ? p.x - 41 : p.x - (128 - 86);
+                  top = p.y - 20;
+                } else {
+                  // Ghost: sprite top-left at (p.x - 77, p.y - 15)
+                  left = p.facing === 'left' ? p.x - 77 : p.x - (128 - 93);
+                  top = p.y - 15;
+                }
+                // TV form sprites are drawn facing right by default, flip for left direction
+                // Ghost sprites are drawn facing left by default, flip for right direction
+                const flipTV = p.facing === 'left' ? 'none' : 'scaleX(-1)';
+                const flipGhost = p.facing === 'right' ? 'scaleX(-1)' : 'none';
+                const transform = form === 'tv' ? flipTV : flipGhost;
+
+                return (
+                  <img
+                    key={p.id + '-phantasma-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left, top,
+                      width: spriteW, height: spriteH,
+                      imageRendering: 'pixelated',
+                      transform,
+                      transformOrigin: 'center center',
+                      filter: p.isInvincible ? 'drop-shadow(0 0 8px #facc15)' : 'none'
+                    }}
+                  />
+                );
               })}
+              {/* OldTV objects left behind by Phantasma */}
+              {playersList.filter(p => p.characterId === 'phantasma' && p.phantasmaOldTvs).flatMap(p =>
+                Object.values(p.phantasmaOldTvs || {}).map((tv: any) => (
+                  <img
+                    key={'oldtv-' + tv.id}
+                    src="/Phantasma/OldTV.png"
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left: tv.x,
+                      top: tv.y,
+                      width: tv.width,
+                      height: tv.height,
+                      imageRendering: 'pixelated',
+                    }}
+                  />
+                ))
+              )}
             </div>
         </div>
       </main>
@@ -2723,6 +2902,8 @@ export default function GameCanvas() {
                       <img src="/Zobo/ZoboIcon.png" alt="Zobo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : p.characterId === 'orbo' ? (
                       <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : p.characterId === 'phantasma' ? (
+                      <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
                     )}

@@ -48,6 +48,7 @@ interface Player {
   safetyWarpTimer?: number;
   dots?: { damagePerTick: number; ticksLeft: number; nextTick: number; ownerId?: string }[];
   isInvincible?: boolean;
+  spawnLockoutEnd?: number;
   activeEffects?: Record<string, number>;
   hp?: number;
   kaelenBombCD?: number;
@@ -93,6 +94,10 @@ interface Player {
   zoboRegatherHit?: boolean;
   // Orbo sprite state
   orboState?: 'idle' | 'move' | 'idleDeflect' | 'moveDeflect' | 'attack2' | 'attack2Deflect' | 'attack3';
+  // Phantasma state
+  phantasmaForm?: 'tv' | 'ghost';
+  phantasmaState?: 'idle' | 'attack1' | 'attack2' | 'attack3' | 'movestart' | 'movemid' | 'dash';
+  phantasmaOldTv?: { id: string; x: number; y: number; width: number; height: number; lobbyId: string };
   lastHitBy?: { id: string, time: number };
   brambleId?: string;
   brambleImmune?: number;
@@ -113,6 +118,7 @@ const ROSTER = [
   { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
   { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park' },
   { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park' },
+  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park' },
   { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
@@ -160,7 +166,7 @@ interface MatchSettings {
 
 interface Projectile {
     id: string;
-    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate' | 'spider' | 'web';
+    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate' | 'spider' | 'web' | 'poltergeist';
     x: number;
     y: number;
     startX?: number;
@@ -223,6 +229,7 @@ const zones: Record<string, Zone> = {};
 const drones: Record<string, Drone> = {};
 let entityIdCounter = 0;
 let lobbyIdCounter = 0;
+const MOVE_SPEED = 7; // Base movement speed (matches client)
 
 // Helper function to get lobby by player ID
 function getLobbyByPlayerId(playerId: string): Lobby | null {
@@ -361,6 +368,11 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
     target.zoboState = 'idle'; target.zoboArm1Active = false; target.zoboArm1ProjId = undefined;
     target.orboState = 'idle'; target.pinedoState = 'idle'; target.mirageState = 'idle';
     target.cocoState = 'idle'; target.boomerangActive = false;
+    target.phantasmaForm = 'tv'; target.phantasmaState = 'idle'; target.phantasmaOldTv = undefined;
+    // If Phantasma just died — destroy their abandoned OldTV
+    if (target.characterId === 'phantasma' && target.phantasmaOldTv) {
+        io.to(targetLobby.id).emit('destroyOldTv', { id: target.phantasmaOldTv.id, ownerId: target.id });
+    }
 
     io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
     io.to(targetLobby.id).emit('characterChange', { id: target.id, newCharacterId: target.characterId });
@@ -377,6 +389,8 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
       killer.width = charWidth(killerChar.id);
       killer.height = charHeight(killerChar.id);
       killer.color = killerChar.color;
+      // Reset Phantasma state for the killer too
+      killer.phantasmaForm = 'tv'; killer.phantasmaState = 'idle'; killer.phantasmaOldTv = undefined;
 
       io.to(targetLobby.id).emit('playerEffect', { id: killer.id, effect: 'characterChange', newCharacterId: killer.characterId });
       io.to(targetLobby.id).emit('characterChange', { id: killer.id, newCharacterId: killer.characterId });
@@ -484,7 +498,11 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
         if (targetLobby) io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'healCancel' });
     }
 
-    target.health -= damage;
+    let finalDamage = damage;
+    if (target.characterId === 'phantasma' && target.phantasmaForm === 'ghost') {
+        finalDamage *= 10;
+    }
+    target.health -= finalDamage;
     if (target.characterId === 'zobo' && target.health > 0) {
         recalcZoboSpeed(target);
         target.zoboRegatherHit = true; // interrupt regather
@@ -539,21 +557,23 @@ function getDefaultSettings(gameMode: GameMode): MatchSettings {
   }
 }
 
-function charWidth(id: string | null | undefined): number {
+function charWidth(id: string | null | undefined, form?: string): number {
   if (id === 'wax') return 100;
   if (id === 'mirage') return 12;
   if (id === 'coco') return 50;
   if (id === 'orbo') return 17;
   if (id === 'zobo') return 6;
+  if (id === 'phantasma') return form === 'ghost' ? 16 : 45; // Ghost: 93 - 77 = 16, TV: 86 - 41 = 45
   return 50;
 }
 
-function charHeight(id: string | null | undefined): number {
+function charHeight(id: string | null | undefined, form?: string): number {
   if (id === 'wax') return 120;
   if (id === 'mirage') return 40;
   if (id === 'coco') return 80;
   if (id === 'orbo') return 44;
   if (id === 'zobo') return 70;
+  if (id === 'phantasma') return form === 'ghost' ? 109 : 89; // Ghost: 124 - 15 = 109, TV: 109 - 20 = 89
   return 50;
 }
 
@@ -1022,6 +1042,15 @@ setInterval(() => {
                         // Web — stun 90 frames (~3s)
                         if (proj.type === 'web') {
                             io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 90 });
+                        }
+                        // Poltergeist — target floats in a random direction for 2s
+                        if (proj.type === 'poltergeist') {
+                            const floatVx = (Math.random() - 0.5) * 16;
+                            const floatVy = (Math.random() - 0.5) * 16;
+                            io.to(player.id).emit('applyKnockback', { vx: floatVx, vy: floatVy, stunFrames: 0 });
+                            player.activeEffects = player.activeEffects || {};
+                            player.activeEffects['phantasmaFloat'] = Date.now() + 2000;
+                            io.to(getLobbyByPlayerId(player.id)?.id || '').emit('playerEffect', { id: player.id, effect: 'phantasmaFloat', duration: 2000 });
                         }
                     }
                     if (proj.type !== 'boomerang' && proj.type !== 'chocolate' && proj.type !== 'spider') {
@@ -1686,8 +1715,9 @@ io.on('connection', (socket) => {
           }
       }
       
-      // Void death check
-      if (players[socket.id].y > 800) {
+      // Void death check (Ghost Form Phantasma floats — skip void)
+      const isGhostFloat = players[socket.id].characterId === 'phantasma' && players[socket.id].phantasmaForm === 'ghost';
+      if (players[socket.id].y > 800 && !isGhostFloat) {
         handlePlayerDeath(players[socket.id], undefined, 'void');
       } else if (lobby) {
         socket.to(lobby.id).emit('playerMoved', players[socket.id]);
@@ -2042,6 +2072,132 @@ io.on('connection', (socket) => {
                       players[player.id].speedMult = char ? char.speedMult : 0.8; 
                   } 
               }, duration);
+          }
+      } else if (player.characterId === 'phantasma') {
+          const form = player.phantasmaForm || 'tv';
+          if (form === 'tv') {
+              if (data.ability === 1) {
+                  // Electronic Disturbance — EMP ring that reroutes projectiles
+                  player.phantasmaState = 'attack1';
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack1' });
+                  // Find and reroute all non-boomerang projectiles within 200px
+                  const empX = player.x + player.width / 2;
+                  const empY = player.y + player.height / 2;
+                  for (const [pid, proj] of Object.entries(projectiles)) {
+                      if (proj.type === 'boomerang') continue;
+                      const dist = Math.hypot(proj.x - empX, proj.y - empY);
+                      if (dist < 200) {
+                          const angle = Math.random() * Math.PI * 2;
+                          const speed = Math.hypot(proj.vx, proj.vy) || 10;
+                          proj.vx = Math.cos(angle) * speed;
+                          proj.vy = Math.sin(angle) * speed;
+                          proj.ownerId = 'emp_rerouted_' + player.id; // anyone can now be hit by it
+                      }
+                  }
+                  io.to(lobby.id).emit('empEffect', { x: empX, y: empY });
+                  setTimeout(() => { if (players[player.id]) { players[player.id].phantasmaState = 'idle'; io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'idle' }); } }, 600);
+              } else if (data.ability === 2) {
+                  // Jolt — upward electricity beam
+                  player.phantasmaState = 'attack2';
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack2' });
+                  const joltX = player.x + player.width / 2;
+                  const joltY = player.y;
+                  // Check players in a vertical strip above
+                  for (const other of Object.values(players)) {
+                      if (other.id === player.id) continue;
+                      if (Math.abs((other.x + other.width / 2) - joltX) < 40 && other.y + other.height < joltY + 20 && other.y > joltY - 400) {
+                          applyDamage(other, 25, player.id);
+                          io.to(other.id).emit('applyKnockback', { vx: 0, vy: -15, stunFrames: 20 });
+                      }
+                  }
+                  io.to(lobby.id).emit('joltEffect', { x: joltX, y: joltY });
+                  setTimeout(() => { if (players[player.id]) { players[player.id].phantasmaState = 'idle'; io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'idle' }); } }, 700);
+              } else if (data.ability === 3) {
+                  // Ghost form transform — leave behind OldTV, become ghost
+                  player.phantasmaState = 'attack3';
+                  player.isInvincible = true;
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack3' });
+                  // After transform animation (~1200ms), become ghost
+                  setTimeout(() => {
+                      if (!players[player.id]) return;
+                      const p = players[player.id];
+                      // Store OldTV object at current position
+                      const tvId = 'oldtv_' + entityIdCounter++;
+                      p.phantasmaOldTv = { id: tvId, x: p.x, y: p.y, width: 45, height: 89, lobbyId: lobby.id };
+                      io.to(lobby.id).emit('spawnOldTv', { id: tvId, x: p.x, y: p.y, width: 45, height: 89, ownerId: p.id });
+                      // Switch to ghost form
+                      p.phantasmaForm = 'ghost';
+                      p.width = 16;
+                      p.height = 109;
+                      p.speedMult = 2.0;
+                      p.phantasmaState = 'idle';
+                      p.isInvincible = false;
+                      io.to(lobby.id).emit('playerEffect', { id: p.id, effect: 'phantasmaFormChange', form: 'ghost' });
+                  }, 1200);
+              }
+          } else if (form === 'ghost') {
+              if (data.ability === 1) {
+                  // Poltergeist — ranged projectile that makes targets float randomly
+                  player.phantasmaState = 'attack1';
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack1' });
+                  const pid = 'proj_' + entityIdCounter++;
+                  projectiles[pid] = {
+                      id: pid, type: 'poltergeist',
+                      x: player.x + player.width / 2,
+                      y: player.y + player.height / 2,
+                      vx: player.facing === 'right' ? 14 : -14, vy: 0,
+                      ownerId: player.id, damage: 8, life: 90
+                  };
+                  setTimeout(() => { if (players[player.id]) { players[player.id].phantasmaState = 'idle'; io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'idle' }); } }, 400);
+              } else if (data.ability === 2) {
+                  // Phantom Dash — dash with damage based on combined speed
+                  player.phantasmaState = 'dash';
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'dash' });
+                  const dashVx = player.facing === 'right' ? MOVE_SPEED * 2.0 * 8 : -MOVE_SPEED * 2.0 * 8;
+                  io.to(player.id).emit('applyKnockback', { vx: dashVx, vy: 0, stunFrames: 0 });
+                  // Detect hits during dash window
+                  setTimeout(() => {
+                      if (!players[player.id]) return;
+                      const p = players[player.id];
+                      for (const other of Object.values(players)) {
+                          if (other.id === p.id) continue;
+                          if (p.x < other.x + other.width && p.x + p.width > other.x && p.y < other.y + other.height && p.y + p.height > other.y) {
+                              const mySpeed = Math.abs(dashVx) / MOVE_SPEED;
+                              const otherSpeed = Math.abs(other.speedMult || 1.0);
+                              const dmg = Math.round(15 * mySpeed * otherSpeed);
+                              applyDamage(other, dmg, p.id);
+                          }
+                      }
+                      if (players[player.id]) {
+                          players[player.id].phantasmaState = 'idle';
+                          io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'idle' });
+                      }
+                  }, 300);
+              } else if (data.ability === 3) {
+                  // Electrovision — transform back to TV, requires being near OldTV
+                  const tv = player.phantasmaOldTv;
+                  if (!tv) { socket.emit('abilityCooldown', { ability: 3, frames: 15 }); return; }
+                  const dist = Math.hypot((player.x + player.width / 2) - (tv.x + tv.width / 2), (player.y + player.height / 2) - (tv.y + tv.height / 2));
+                  if (dist > 200) { socket.emit('abilityCooldown', { ability: 3, frames: 15 }); return; }
+                  player.phantasmaState = 'attack3';
+                  player.isInvincible = true;
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack3' });
+                  // Destroy OldTV
+                  io.to(lobby.id).emit('destroyOldTv', { id: tv.id, ownerId: player.id });
+                  player.phantasmaOldTv = undefined;
+                  // After animation (~1000ms), switch back to TV form
+                  setTimeout(() => {
+                      if (!players[player.id]) return;
+                      const p = players[player.id];
+                      p.phantasmaForm = 'tv';
+                      p.width = 45;
+                      p.height = 89;
+                      p.speedMult = 0.1;
+                      p.phantasmaState = 'idle';
+                      p.isInvincible = false;
+                      io.to(lobby.id).emit('playerEffect', { id: p.id, effect: 'phantasmaFormChange', form: 'tv' });
+                  }, 1000);
+              }
           }
       } else if (player.characterId === 'pinedo') {
           if (data.ability === 1) {
