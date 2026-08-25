@@ -2807,19 +2807,49 @@ export default function GameCanvas() {
                   else src = '/Phantasma/PhantasmaGhostIdle.gif';
                 }
 
-                // Render height: scale sprite to 62px
-                const drawH = 62;
-                const drawW = 62;
-                const playerCenterX = p.x + p.width / 2;
-                const playerBottom = p.y + p.height;
-                const left = playerCenterX - drawW / 2;
-                const top = playerBottom - drawH;
+                // Render scaling: 128x128 sprite sheet scaled proportionally.
+                // Scale factor: TV form height is 89px (y:20..109), Ghost form height is 109px (y:15..124).
+                // We scale the 128px sprite so the hitbox height matches the player's physical collision height!
+                const isGhost = form === 'ghost';
+                const spriteOriginalHitboxH = isGhost ? 109 : 89;
+                const scale = p.height / spriteOriginalHitboxH;
+                const drawW = 128 * scale;
+                const drawH = 128 * scale;
 
-                // TV form images face right by default — flip left when facing left (scaleX(-1))
-                // Ghost form images face left by default — flip right when facing right (scaleX(-1))
-                const transform = form === 'tv' 
-                  ? (p.facing === 'left' ? 'scaleX(-1)' : 'none')
-                  : (p.facing === 'right' ? 'scaleX(-1)' : 'none');
+                // Hitbox offsets in unscaled 128x128 sprite:
+                // TV: x offset = 41 (left to 86 = 45w), y offset = 20 (top to 109 = 89h)
+                // Ghost: x offset = 77 (left to 93 = 16w), y offset = 15 (top to 124 = 109h)
+                const offsetX = (isGhost ? 77 : 41) * scale;
+                const offsetY = (isGhost ? 15 : 20) * scale;
+
+                // Facing direction logic:
+                // TV form sprites face RIGHT by default in raw image:
+                // - Facing right: left = p.x - offsetX
+                // - Facing left: flipped horizontally, left = p.x - (drawW - offsetX - p.width)
+                // Ghost form sprites face LEFT by default in raw image:
+                // - Facing left: left = p.x - offsetX
+                // - Facing right: flipped horizontally, left = p.x - (drawW - offsetX - p.width)
+                let left: number;
+                let transform: string;
+
+                if (form === 'tv') {
+                  if (p.facing === 'left') {
+                    transform = 'scaleX(-1)';
+                    left = p.x - (drawW - offsetX - p.width);
+                  } else {
+                    transform = 'none';
+                    left = p.x - offsetX;
+                  }
+                } else {
+                  if (p.facing === 'right') {
+                    transform = 'scaleX(-1)';
+                    left = p.x - (drawW - offsetX - p.width);
+                  } else {
+                    transform = 'none';
+                    left = p.x - offsetX;
+                  }
+                }
+                const top = p.y - offsetY;
 
                 return (
                   <img
@@ -2841,10 +2871,13 @@ export default function GameCanvas() {
               {/* OldTV objects left behind by Phantasma */}
               {playersList.filter(p => p.characterId === 'phantasma' && p.phantasmaOldTvs).flatMap(p =>
                 Object.values(p.phantasmaOldTvs || {}).map((tv: any) => {
-                  const drawH = 62;
-                  const drawW = 62;
-                  const centerX = tv.x + tv.width / 2;
-                  const bottomY = tv.y + tv.height;
+                  // OldTV object corresponds to the TV Form bounding box (width: 45, height: 89)
+                  // Offset in 128x128 TV sprite is x=41, y=20
+                  const scale = tv.height / 89;
+                  const drawW = 128 * scale;
+                  const drawH = 128 * scale;
+                  const left = tv.x - 41 * scale;
+                  const top = tv.y - 20 * scale;
                   return (
                     <img
                       key={'oldtv-' + tv.id}
@@ -2852,8 +2885,8 @@ export default function GameCanvas() {
                       alt=""
                       style={{
                         position: 'absolute',
-                        left: centerX - drawW / 2,
-                        top: bottomY - drawH,
+                        left,
+                        top,
                         width: drawW,
                         height: drawH,
                         imageRendering: 'pixelated',
