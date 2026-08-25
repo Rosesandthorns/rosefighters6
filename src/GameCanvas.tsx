@@ -2808,49 +2808,47 @@ export default function GameCanvas() {
                   else src = '/Phantasma/PhantasmaGhostIdle.gif';
                 }
 
-                // Render scaling: 128x128 sprite sheet scaled proportionally.
-                // Scale factor: TV form height is 89px (y:20..109), Ghost form height is 109px (y:15..124).
-                // We scale the 128px sprite so the hitbox height matches the player's physical collision height!
+                // Scale sprite so maximum rendered height is 62px (matching Mirage drawH)
                 const isGhost = form === 'ghost';
-                const spriteOriginalHitboxH = isGhost ? 109 : 89;
-                const scale = p.height / spriteOriginalHitboxH;
-                const drawW = 128 * scale;
-                const drawH = 128 * scale;
+                const drawH = 62;
+                const drawW = 62;
+                const scale = 62 / 128; // scale 128x128 image down to 62x62
 
                 // Hitbox offsets in unscaled 128x128 sprite:
-                // TV: x offset = 41 (left to 86 = 45w), y offset = 20 (top to 109 = 89h)
-                // Ghost: x offset = 77 (left to 93 = 16w), y offset = 15 (top to 124 = 109h)
+                // TV: x offset = 41 (width 45), y offset = 20 (height 89)
+                // Ghost: x offset = 77 (width 16), y offset = 15 (height 109)
+                const spriteHitboxW = (isGhost ? 16 : 45) * scale;
+                const spriteHitboxH = (isGhost ? 109 : 89) * scale;
                 const offsetX = (isGhost ? 77 : 41) * scale;
                 const offsetY = (isGhost ? 15 : 20) * scale;
 
-                // Facing direction logic:
-                // TV form sprites face RIGHT by default in raw image:
-                // - Facing right: left = p.x - offsetX
-                // - Facing left: flipped horizontally, left = p.x - (drawW - offsetX - p.width)
-                // Ghost form sprites face LEFT by default in raw image:
-                // - Facing left: left = p.x - offsetX
-                // - Facing right: flipped horizontally, left = p.x - (drawW - offsetX - p.width)
+                // Center visual sprite hitbox horizontally & align bottom with player collision box
+                const playerCenterX = p.x + p.width / 2;
+                const playerBottom = p.y + p.height;
+                const visualBoxLeft = playerCenterX - spriteHitboxW / 2;
+                const visualBoxTop = playerBottom - spriteHitboxH;
+
                 let left: number;
                 let transform: string;
 
                 if (form === 'tv') {
                   if (p.facing === 'left') {
                     transform = 'scaleX(-1)';
-                    left = p.x - (drawW - offsetX - p.width);
+                    left = visualBoxLeft - (drawW - offsetX - spriteHitboxW);
                   } else {
                     transform = 'none';
-                    left = p.x - offsetX;
+                    left = visualBoxLeft - offsetX;
                   }
                 } else {
                   if (p.facing === 'right') {
                     transform = 'scaleX(-1)';
-                    left = p.x - (drawW - offsetX - p.width);
+                    left = visualBoxLeft - (drawW - offsetX - spriteHitboxW);
                   } else {
                     transform = 'none';
-                    left = p.x - offsetX;
+                    left = visualBoxLeft - offsetX;
                   }
                 }
-                const top = p.y - offsetY;
+                const top = visualBoxTop - offsetY;
 
                 return (
                   <img
