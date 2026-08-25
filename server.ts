@@ -420,6 +420,13 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
     io.to(targetLobby.id).emit('playerHealthChanged', { id: target.id, health: target.health });
   }
 
+  // Apply 5s spawn protection (invincibility + attack/ability lockout)
+  target.isInvincible = true;
+  target.spawnLockoutEnd = Date.now() + 5000;
+  setTimeout(() => {
+    if (players[target.id]) players[target.id].isInvincible = false;
+  }, 5000);
+
   checkWinConditions(targetLobby);
 }
 
@@ -1597,7 +1604,14 @@ io.on('connection', (socket) => {
     
     const lobbyPlayersMap: Record<string, Player> = {};
     for (const pId of Object.keys(lobby.players)) {
-      if (players[pId]) lobbyPlayersMap[pId] = players[pId];
+      if (players[pId]) {
+        players[pId].isInvincible = true;
+        players[pId].spawnLockoutEnd = Date.now() + 5000;
+        setTimeout(() => {
+          if (players[pId]) players[pId].isInvincible = false;
+        }, 5000);
+        lobbyPlayersMap[pId] = players[pId];
+      }
     }
     io.to(lobby.id).emit('gameStart', { players: lobbyPlayersMap, lobby });
     io.to(lobby.id).emit('lobbyUpdate', lobby);
@@ -1708,6 +1722,12 @@ io.on('connection', (socket) => {
       const player = players[socket.id];
       const lobby = getLobbyByPlayerId(socket.id);
       if (!player || !lobby || lobby.gameState !== 'PLAYING') return;
+
+      // Block ability usage while under initial 5s spawn protection
+      if (player.spawnLockoutEnd && Date.now() < player.spawnLockoutEnd) {
+          socket.emit('abilityCooldown', { ability: data.ability, frames: 15 });
+          return;
+      }
 
       if (player.characterId === 'mirage') {
           const mirageAttacking = player.mirageState === 'attack1' || player.mirageState === 'attack2' || player.mirageState === 'attack3' || player.mirageState === 'attack3reverse';

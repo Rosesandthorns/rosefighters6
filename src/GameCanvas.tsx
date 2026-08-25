@@ -1876,6 +1876,19 @@ export default function GameCanvas() {
             ctx.restore();
         }
 
+        // ── Spawn Invincibility Shield Ring ─────────────────────────────────
+        if (player.isInvincible) {
+            ctx.save();
+            ctx.strokeStyle = '#facc15';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#facc15';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(player.x + player.width / 2, player.y + player.height / 2, Math.max(player.width, player.height) / 2 + 10, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
         // ── Pinedo/Mirage/Coco/Orbo/Zobo: hidden from canvas — rendered as DOM overlay beneath ──────
         if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo') {
             hideStandardBody = true;
