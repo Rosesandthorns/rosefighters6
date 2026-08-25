@@ -1173,7 +1173,8 @@ setInterval(() => {
             if (proj.lobbyId === lobbyId || playerLobbyMap[proj.ownerId] === lobbyId) lobbyProjectiles[id] = proj;
         }
         for (const [id, wall] of Object.entries(walls)) {
-            if (wall.lobbyId === lobbyId || (wall.ownerId && playerLobbyMap[wall.ownerId] === lobbyId)) lobbyWalls[id] = wall;
+            const ownerLobby = wall.ownerId ? playerLobbyMap[wall.ownerId] : null;
+            if (wall.lobbyId === lobbyId || ownerLobby === lobbyId || !wall.ownerId) lobbyWalls[id] = wall;
         }
         for (const [id, zone] of Object.entries(zones)) {
             if (zone.lobbyId === lobbyId || playerLobbyMap[zone.ownerId] === lobbyId) lobbyZones[id] = zone;
@@ -1743,7 +1744,9 @@ io.on('connection', (socket) => {
                       x: castX2 + (castFacing2 === 'right' ? 80 : -80),
                       y: castY2 - 50,
                       width: 20, height: 100,
-                      expires: Date.now() + 5000
+                      expires: Date.now() + 5000,
+                      ownerId: player.id,
+                      lobbyId: lobby.id
                   };
               }, 390);
               // Animation total = 640ms
