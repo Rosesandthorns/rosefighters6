@@ -2105,7 +2105,7 @@ io.on('connection', (socket) => {
                   io.to(lobby.id).emit('empEffect', { x: empX, y: empY });
                   setTimeout(() => { if (players[player.id]) { players[player.id].phantasmaState = 'idle'; io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'idle' }); } }, 600);
               } else if (data.ability === 2) {
-                  // Jolt — upward electricity beam
+                  // Jolt — upward electricity beam (increased damage)
                   player.phantasmaState = 'attack2';
                   io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'attack2' });
                   const joltX = player.x + player.width / 2;
@@ -2114,7 +2114,7 @@ io.on('connection', (socket) => {
                   for (const other of Object.values(players)) {
                       if (other.id === player.id) continue;
                       if (Math.abs((other.x + other.width / 2) - joltX) < 40 && other.y + other.height < joltY + 20 && other.y > joltY - 400) {
-                          applyDamage(other, 25, player.id);
+                          applyDamage(other, 45, player.id);
                           io.to(other.id).emit('applyKnockback', { vx: 0, vy: -15, stunFrames: 20 });
                       }
                   }
@@ -2159,29 +2159,19 @@ io.on('connection', (socket) => {
                   };
                   setTimeout(() => { if (players[player.id]) { players[player.id].phantasmaState = 'idle'; io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'idle' }); } }, 400);
               } else if (data.ability === 2) {
-                  // Phantom Dash — dash with damage based on combined speed
+                  // Phantom Dash — Cole-like dash that multiplies both characters speed by 15 with 0 knockback
                   player.phantasmaState = 'dash';
+                  player.activeEffects = player.activeEffects || {};
+                  player.activeEffects['phantomDash'] = Date.now() + 600;
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantomDash', duration: 600 });
                   io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'dash' });
-                  const dashVx = player.facing === 'right' ? MOVE_SPEED * 2.0 * 8 : -MOVE_SPEED * 2.0 * 8;
-                  io.to(player.id).emit('applyKnockback', { vx: dashVx, vy: 0, stunFrames: 0 });
-                  // Detect hits during dash window
                   setTimeout(() => {
-                      if (!players[player.id]) return;
-                      const p = players[player.id];
-                      for (const other of Object.values(players)) {
-                          if (other.id === p.id) continue;
-                          if (p.x < other.x + other.width && p.x + p.width > other.x && p.y < other.y + other.height && p.y + p.height > other.y) {
-                              const mySpeed = Math.abs(dashVx) / MOVE_SPEED;
-                              const otherSpeed = Math.abs(other.speedMult || 1.0);
-                              const dmg = Math.round(15 * mySpeed * otherSpeed);
-                              applyDamage(other, dmg, p.id);
-                          }
-                      }
                       if (players[player.id]) {
                           players[player.id].phantasmaState = 'idle';
+                          delete players[player.id].activeEffects?.['phantomDash'];
                           io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'phantasmaState', state: 'idle' });
                       }
-                  }, 300);
+                  }, 600);
               } else if (data.ability === 3) {
                   // Electrovision — transform back to TV, requires being near OldTV
                   const tv = player.phantasmaOldTv;

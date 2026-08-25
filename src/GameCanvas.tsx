@@ -1075,13 +1075,15 @@ export default function GameCanvas() {
               const currentSpeed = MOVE_SPEED * (myPlayer.speedMult || 1.0);
               
               const isColeRollActive = myPlayer.activeEffects?.['coleRoll'] && myPlayer.activeEffects['coleRoll'] > Date.now();
+              const isPhantomDashActive = myPlayer.activeEffects?.['phantomDash'] && myPlayer.activeEffects['phantomDash'] > Date.now();
               const isRicaRunActive = myPlayer.activeEffects?.['ricaRun'] && myPlayer.activeEffects['ricaRun'] > Date.now();
-              if (isColeRollActive || isRicaRunActive) {
-                  if (!myPlayer.isGrounded) {
+              if (isColeRollActive || isRicaRunActive || isPhantomDashActive) {
+                  if (!myPlayer.isGrounded && !isPhantomDashActive) {
                       if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
                       if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
                   } else {
-                      moveTarget = myPlayer.facing === 'right' ? (isColeRollActive ? MOVE_SPEED * 2 : currentSpeed * 2.5) : (isColeRollActive ? -MOVE_SPEED * 2 : -currentSpeed * 2.5);
+                      const dashSpeed = isPhantomDashActive ? currentSpeed * 2.0 : (isColeRollActive ? MOVE_SPEED * 2 : currentSpeed * 2.5);
+                      moveTarget = myPlayer.facing === 'right' ? dashSpeed : -dashSpeed;
                       
                       const nextLeft = myPlayer.x + moveTarget;
                       const nextRight = myPlayer.x + myPlayer.width + moveTarget;
@@ -1367,13 +1369,14 @@ export default function GameCanvas() {
           }
       }
 
-      // Special active hitboxes (Rica Run / Chester Dash)
+      // Special active hitboxes (Rica Run / Chester Dash / Phantom Dash)
       const isColeRoll = myPlayer.activeEffects?.['coleRoll'] && myPlayer.activeEffects['coleRoll'] > Date.now();
+      const isPhantomDash = myPlayer.activeEffects?.['phantomDash'] && myPlayer.activeEffects['phantomDash'] > Date.now();
       if ((myPlayer.activeEffects?.['ricaRun'] && myPlayer.activeEffects['ricaRun'] > Date.now()) || 
-          (myPlayer.activeEffects?.['toothDash'] && myPlayer.activeEffects['toothDash'] > Date.now()) || isColeRoll) {
+          (myPlayer.activeEffects?.['toothDash'] && myPlayer.activeEffects['toothDash'] > Date.now()) || isColeRoll || isPhantomDash) {
           
           const isRica = myPlayer.activeEffects?.['ricaRun'] > Date.now();
-          const damage = isColeRoll ? 0 : (isRica ? 30 : 10);
+          const damage = isPhantomDash ? 0 : (isColeRoll ? 0 : (isRica ? 30 : 10));
           
           Object.values(playersRef.current).forEach((target: Player) => {
               if (target.id === myId) return;
@@ -1385,31 +1388,43 @@ export default function GameCanvas() {
                   myPlayer.y + myPlayer.height > target.y) {
                       
                   hitCooldownsRef.current[target.id] = 1;
-                  socket.emit('playerHit', { targetId: target.id, damage });
 
-                  const dirX = myPlayer.facing === 'right' ? 1 : -1;
-                  
-                  if (isColeRoll) {
+                  if (isPhantomDash) {
+                      const mySpeed = myPlayer.speedMult || 2.0;
+                      const targetSpeed = target.speedMult || 1.0;
+                      const calculatedDmg = Math.round(15 * mySpeed * targetSpeed);
+                      socket.emit('playerHit', { targetId: target.id, damage: calculatedDmg });
                       socket.emit('playerKnockback', {
                           targetId: target.id,
-                          vx: dirX * 15,
-                          vy: -10,
-                          stunFrames: 20
-                      });
-                  } else if (isRica) {
-                      socket.emit('playerKnockback', {
-                          targetId: target.id,
-                          vx: dirX * 18,
-                          vy: -15,
-                          stunFrames: 25
-                      });
-                  } else {
-                      socket.emit('playerKnockback', {
-                          targetId: target.id,
-                          vx: dirX * 10,
-                          vy: -5,
+                          vx: 0,
+                          vy: 0,
                           stunFrames: 10
                       });
+                  } else {
+                      socket.emit('playerHit', { targetId: target.id, damage });
+                      const dirX = myPlayer.facing === 'right' ? 1 : -1;
+                      if (isColeRoll) {
+                          socket.emit('playerKnockback', {
+                              targetId: target.id,
+                              vx: dirX * 15,
+                              vy: -10,
+                              stunFrames: 20
+                          });
+                      } else if (isRica) {
+                          socket.emit('playerKnockback', {
+                              targetId: target.id,
+                              vx: dirX * 18,
+                              vy: -15,
+                              stunFrames: 25
+                          });
+                      } else {
+                          socket.emit('playerKnockback', {
+                              targetId: target.id,
+                              vx: dirX * 10,
+                              vy: -5,
+                              stunFrames: 15
+                          });
+                      }
                   }
               }
           });
