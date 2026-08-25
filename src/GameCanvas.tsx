@@ -2325,6 +2325,10 @@ export default function GameCanvas() {
                       <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : char.id === 'coco' ? (
                       <img src="/Coco/CocoIcon.png" alt="Coco" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : char.id === 'zobo' ? (
+                      <img src="/Zobo/ZoboIcon.png" alt="Zobo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : char.id === 'orbo' ? (
+                      <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
                     )}
@@ -2676,6 +2680,8 @@ export default function GameCanvas() {
                       <img src="/Coco/CocoIcon.png" alt="Coco" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : p.characterId === 'zobo' ? (
                       <img src="/Zobo/ZoboIcon.png" alt="Zobo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : p.characterId === 'orbo' ? (
+                      <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
                     )}
