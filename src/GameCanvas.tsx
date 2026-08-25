@@ -413,6 +413,19 @@ export default function GameCanvas() {
 
     newSocket.on('characterChange', (data: { id: string, newCharacterId: string }) => {
       console.log('Character change:', data);
+      const player = playersRef.current[data.id];
+      if (player) {
+        const char = ROSTER.find(c => c.id === data.newCharacterId);
+        if (char) {
+          player.characterId = data.newCharacterId;
+          player.color = char.color;
+          player.speedMult = char.speedMult;
+          player.maxHealth = char.hp;
+          player.health = char.hp;
+          player.width = data.newCharacterId === 'wax' ? 100 : data.newCharacterId === 'mirage' ? 12 : data.newCharacterId === 'coco' ? 40 : 50;
+          player.height = data.newCharacterId === 'wax' ? 120 : data.newCharacterId === 'mirage' ? 40 : data.newCharacterId === 'coco' ? 65 : 50;
+        }
+      }
     });
 
     newSocket.on('playerEliminated', (data: { id: string }) => {
@@ -2107,14 +2120,6 @@ export default function GameCanvas() {
                   );
                 })}
               </div>
-              {localRoster.length === 5 && (
-                <button
-                  onClick={() => socket?.emit('setRosterChoice', localRoster)}
-                  className="px-6 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-bold transition-all"
-                >
-                  Confirm Roster
-                </button>
-              )}
             </div>
           )}
 
@@ -2174,10 +2179,14 @@ export default function GameCanvas() {
                        // Roster choice logic
                        if (localRoster.includes(char.id)) {
                          // Remove from roster
-                         setLocalRoster(localRoster.filter(id => id !== char.id));
+                         const newRoster = localRoster.filter(id => id !== char.id);
+                         setLocalRoster(newRoster);
+                         socket?.emit('setRosterChoice', newRoster);
                        } else if (localRoster.length < 5) {
                          // Add to roster
-                         setLocalRoster([...localRoster, char.id]);
+                         const newRoster = [...localRoster, char.id];
+                         setLocalRoster(newRoster);
+                         socket?.emit('setRosterChoice', newRoster);
                        }
                      } else {
                        // Normal character selection

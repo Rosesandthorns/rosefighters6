@@ -294,8 +294,8 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
             target.health = char ? char.hp : 100;
             target.maxHealth = char ? char.hp : 100;
             target.speedMult = char ? char.speedMult : 1.0;
-            target.width = target.characterId === 'wax' ? 100 : target.characterId === 'mirage' ? 12 : target.characterId === 'coco' ? 40 : 50;
-            target.height = target.characterId === 'wax' ? 120 : target.characterId === 'mirage' ? 40 : target.characterId === 'coco' ? 65 : 50;
+            target.width = randomChar.id === 'wax' ? 100 : randomChar.id === 'mirage' ? 12 : randomChar.id === 'coco' ? 40 : 50;
+            target.height = randomChar.id === 'wax' ? 120 : randomChar.id === 'mirage' ? 40 : randomChar.id === 'coco' ? 65 : 50;
             target.color = char ? char.color : '#fff';
             io.emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
         }
@@ -309,8 +309,8 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
             attacker.health = char ? char.hp : 100;
             attacker.maxHealth = char ? char.hp : 100;
             attacker.speedMult = char ? char.speedMult : 1.0;
-            attacker.width = attacker.characterId === 'wax' ? 100 : attacker.characterId === 'mirage' ? 12 : attacker.characterId === 'coco' ? 40 : 50;
-            attacker.height = attacker.characterId === 'wax' ? 120 : attacker.characterId === 'mirage' ? 40 : attacker.characterId === 'coco' ? 65 : 50;
+            attacker.width = randomChar.id === 'wax' ? 100 : randomChar.id === 'mirage' ? 12 : randomChar.id === 'coco' ? 40 : 50;
+            attacker.height = randomChar.id === 'wax' ? 120 : randomChar.id === 'mirage' ? 40 : randomChar.id === 'coco' ? 65 : 50;
             attacker.color = char ? char.color : '#fff';
             io.emit('playerEffect', { id: attacker.id, effect: 'characterChange', newCharacterId: attacker.characterId });
         }
@@ -318,7 +318,8 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
         // Roster Choice mode: switch to next character on death
         if (lobby && lobby.gameMode === 'roster_choice') {
             const roster = lobby.players[target.id].rosterChoice || [];
-            const currentIndex = target.currentRosterIndex || 0;
+            const lobbyPlayer = lobby.players[target.id];
+            const currentIndex = lobbyPlayer.currentRosterIndex || 0;
             const nextIndex = currentIndex + 1;
             
             if (nextIndex < roster.length) {
@@ -329,10 +330,12 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
                 target.health = char ? char.hp : 100;
                 target.maxHealth = char ? char.hp : 100;
                 target.speedMult = char ? char.speedMult : 1.0;
-                target.width = target.characterId === 'wax' ? 100 : target.characterId === 'mirage' ? 12 : target.characterId === 'coco' ? 40 : 50;
-                target.height = target.characterId === 'wax' ? 120 : target.characterId === 'mirage' ? 40 : target.characterId === 'coco' ? 65 : 50;
+                target.width = nextCharId === 'wax' ? 100 : nextCharId === 'mirage' ? 12 : nextCharId === 'coco' ? 40 : 50;
+                target.height = nextCharId === 'wax' ? 120 : nextCharId === 'mirage' ? 40 : nextCharId === 'coco' ? 65 : 50;
                 target.color = char ? char.color : '#fff';
                 target.currentRosterIndex = nextIndex;
+                // Update lobby player to persist the index
+                lobbyPlayer.currentRosterIndex = nextIndex;
                 io.emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
                 io.emit('playerRespawned', target);
             } else {
@@ -456,6 +459,10 @@ setInterval(() => {
                 for (const playerId of Object.keys(lobby.players)) {
                     lobby.players[playerId].isReady = false;
                     lobby.players[playerId].characterId = null;
+                    // Reset roster index for roster choice
+                    if (lobby.gameMode === 'roster_choice') {
+                        lobby.players[playerId].currentRosterIndex = 0;
+                    }
                 }
                 io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'kill_streak_lead' });
                 io.to(lobby.id).emit('lobbyUpdate', lobby);
@@ -487,6 +494,7 @@ setInterval(() => {
             for (const playerId of Object.keys(lobby.players)) {
                 lobby.players[playerId].isReady = false;
                 lobby.players[playerId].characterId = null;
+                lobby.players[playerId].currentRosterIndex = 0;
             }
             io.to(lobby.id).emit('gameEnd', { winnerId: activePlayers[0].id, reason: 'last_standing' });
             io.to(lobby.id).emit('lobbyUpdate', lobby);
@@ -557,6 +565,10 @@ setInterval(() => {
                 for (const playerId of Object.keys(lobby.players)) {
                     lobby.players[playerId].isReady = false;
                     lobby.players[playerId].characterId = null;
+                    // Reset roster index for roster choice
+                    if (lobby.gameMode === 'roster_choice') {
+                        lobby.players[playerId].currentRosterIndex = 0;
+                    }
                 }
                 io.to(lobby.id).emit('gameEnd', { winnerId: sortedScores[0].id, reason: 'time_limit' });
                 io.to(lobby.id).emit('lobbyUpdate', lobby);
@@ -1084,7 +1096,8 @@ io.on('connection', (socket) => {
       characterId: null,
       isReady: false,
       lastActive: Date.now(),
-      isSpectator: false
+      isSpectator: false,
+      currentRosterIndex: 0
     };
     
     lobbies[lobbyId] = newLobby;
@@ -1123,7 +1136,8 @@ io.on('connection', (socket) => {
         characterId: null,
         isReady: false,
         lastActive: Date.now(),
-        isSpectator: true
+        isSpectator: true,
+        currentRosterIndex: 0
       };
     } else {
       targetLobby.players[socket.id] = {
@@ -1131,7 +1145,8 @@ io.on('connection', (socket) => {
         characterId: null,
         isReady: false,
         lastActive: Date.now(),
-        isSpectator: false
+        isSpectator: false,
+        currentRosterIndex: 0
       };
     }
     
@@ -1188,8 +1203,8 @@ io.on('connection', (socket) => {
       delete lobby.players[socket.id];
       delete playerLobbyMap[socket.id];
       
-      // Check if lobby is now empty
-      if (Object.keys(lobby.players).length === 0) {
+      // Check if lobby is now empty or in playing state
+      if (Object.keys(lobby.players).length === 0 || lobby.gameState === 'PLAYING') {
         delete lobbies[lobby.id];
         io.emit('lobbyClosed', { lobbyId: lobby.id });
         io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
@@ -1414,6 +1429,7 @@ io.on('connection', (socket) => {
             speedMult: char ? char.speedMult : 1.0,
             currentRosterIndex: 0
           };
+          player.currentRosterIndex = 0;
         } else {
           // Use first character from roster
           const firstCharId = roster[0];
@@ -1441,6 +1457,8 @@ io.on('connection', (socket) => {
             speedMult: char ? char.speedMult : 1.0,
             currentRosterIndex: 0
           };
+          // Initialize lobby player's roster index
+          player.currentRosterIndex = 0;
         }
       });
     } else if (lobby.gameMode === 'chaos_rounds') {
