@@ -1246,10 +1246,10 @@ export default function GameCanvas() {
 
       // Platform collision
       for (const plat of PLATFORMS) {
-          // Check if falling down and overlapping horizontally
+          // Check if falling down/standing/teleported and overlapping horizontally
           if (
               prevVelocityY >= 0 && 
-              prevBottom <= plat.y && 
+              prevBottom <= plat.y + 30 && 
               myPlayer.y + myPlayer.height >= plat.y && 
               myPlayer.x + myPlayer.width > plat.x && 
               myPlayer.x < plat.x + plat.width

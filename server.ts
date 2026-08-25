@@ -1745,8 +1745,10 @@ io.on('connection', (socket) => {
           if (data.ability === 1) {
               let target = null;
               let minDist = 300;
+              const myLobbyId = playerLobbyMap[player.id];
               for (const other of Object.values(players)) {
                   if (other.id === player.id) continue;
+                  if (myLobbyId && playerLobbyMap[other.id] !== myLobbyId) continue;
                   const distX = other.x - player.x;
                   const distY = other.y - player.y;
                   const dist = Math.hypot(distX, distY);
@@ -1761,10 +1763,14 @@ io.on('connection', (socket) => {
               }
               if (target) {
                   player.x = target.x + (player.facing === 'right' ? -player.width - 5 : target.width + 5);
-                  player.y = target.y;
+                  player.y = target.y + target.height - player.height;
+                  player.velocity = { x: 0, y: 0 };
                   player.deflectTimer = Date.now() + 2000;
-                  io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
-                  io.emit('playerEffect', { id: player.id, effect: 'deflectStart' });
+                  const lobby = getLobbyByPlayerId(player.id);
+                  if (lobby) {
+                      io.to(lobby.id).emit('forcePosition', { id: player.id, x: player.x, y: player.y });
+                      io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'deflectStart' });
+                  }
               }
           } else if (data.ability === 2) {
               const id = 'zone_' + entityIdCounter++;
