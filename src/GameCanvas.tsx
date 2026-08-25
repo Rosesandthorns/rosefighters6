@@ -33,6 +33,9 @@ interface Player {
   mirageMoving?: boolean;
   cocoState?: 'idle' | 'walk' | 'attack13' | 'attack2';
   cocoRageActive?: boolean;
+  zoboState?: 'idle' | 'walk' | 'attack1start' | 'attack1mid' | 'attack1return' | 'attack2' | 'attack3';
+  zoboArm1Active?: boolean;
+  orboState?: 'idle' | 'move' | 'idleDeflect' | 'moveDeflect' | 'attack2' | 'attack2Deflect' | 'attack3';
   chaosMode?: boolean;
   isEliminated?: boolean;
   currentRosterIndex?: number;
@@ -84,7 +87,7 @@ interface Lobby {
 
 interface Projectile {
     id: string;
-    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate';
+    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate' | 'spider' | 'web';
     x: number;
     y: number;
     vx: number;
@@ -143,6 +146,7 @@ const ROSTER = [
   { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park' },
   { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
   { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park' },
+  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park' },
   { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
@@ -213,6 +217,11 @@ export default function GameCanvas() {
   // Mirage sprite images — loaded once
   const mirageImgs = useRef<Record<string, HTMLImageElement>>({});
   const cocoImgs = useRef<Record<string, HTMLImageElement>>({});
+  const orboImgs = useRef<Record<string, HTMLImageElement>>({});
+  const zoboImgs = useRef<Record<string, HTMLImageElement>>({});
+  // Zobo arm tether state: server emits per-frame position
+  const zoboArmRef = useRef<Record<string, { x1: number; y1: number; x2: number; y2: number; active: boolean }>>({});
+
   useEffect(() => {
     const pAssets: Record<string, string> = {
       idle:       '/Pinedo/PinedoIdlegif.gif',
@@ -251,6 +260,33 @@ export default function GameCanvas() {
     Object.entries(cocoAssets).forEach(([key, src]) => {
       const img = new Image(); img.src = src;
       cocoImgs.current[key] = img;
+    });
+    const orboAssets: Record<string, string> = {
+      idle:          '/Orbo/OrboIdle.png',
+      move:          '/Orbo/OrboMove.gif',
+      idleDeflect:   '/Orbo/OrboIdleDeflect.png',
+      moveDeflect:   '/Orbo/OrboMoveDeflect.gif',
+      attack2:       '/Orbo/Orboattack2.gif',
+      attack2Deflect:'/Orbo/OrboAttack2Deflect.gif',
+      attack3:       '/Orbo/OrboAttack3.gif',
+    };
+    Object.entries(orboAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
+      orboImgs.current[key] = img;
+    });
+    const zoboAssets: Record<string, string> = {
+      idle:        '/Zobo/ZoboIdle.gif',
+      walk:        '/Zobo/ZoboWalkgif.gif',
+      attack1:     '/Zobo/ZoboAttack1Startgif.gif',
+      attack1mid:  '/Zobo/ZoboAttack1middle.png',
+      attack2:     '/Zobo/ZoboAttack2.gif',
+      projectile:  '/Zobo/ZoboProjectile.png',
+      projectile2: '/Zobo/ZoboProjectile2.png',
+      icon:        '/Zobo/ZoboIcon.png',
+    };
+    Object.entries(zoboAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
+      zoboImgs.current[key] = img;
     });
   }, []);
 
@@ -631,6 +667,16 @@ export default function GameCanvas() {
         if (data.effect === 'cocoState' && (data as any).state) {
             p.cocoState = (data as any).state;
         }
+        if (data.effect === 'zoboStateChange' && (data as any).state) {
+            p.zoboState = (data as any).state;
+            if ((data as any).state === 'attack1start' || (data as any).state === 'attack1mid') p.zoboArm1Active = true;
+            if ((data as any).state === 'idle') p.zoboArm1Active = false;
+        }
+        if (data.effect === 'zoboRegatherSuccess') {
+            // Show green glow — handled via activeEffects
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['zoboRegather'] = Date.now() + 1500;
+        }
         if (data.effect === 'cocoRage') {
             p.cocoRageActive = true;
             p.activeEffects = p.activeEffects || {};
@@ -641,6 +687,15 @@ export default function GameCanvas() {
             p.activeEffects = p.activeEffects || {};
             p.activeEffects['cocoRage'] = Date.now() + (data as any).duration || 20000;
         }
+    });
+
+    newSocket.on('zoboArmUpdate', (data: { ownerId: string; x1: number; y1: number; x2: number; y2: number; active: boolean }) => {
+      zoboArmRef.current[data.ownerId] = { x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, active: data.active };
+    });
+
+    newSocket.on('abilityCooldown', (data: { ability: number; frames: number }) => {
+      // Server says conditions weren't met — apply short 0.5s cooldown
+      abilityCooldownsRef.current[data.ability] = data.frames;
     });
 
     newSocket.on('spawnGroundSlam', (data: { x: number, y: number, color: string }) => {
@@ -1017,6 +1072,22 @@ export default function GameCanvas() {
                   } else if (!nowMoving && myPlayer.mirageState === 'movestop') {
                     myPlayer.mirageState = 'idle';
                   }
+                }
+              }
+              // Update Zobo walk/idle state
+              if (myPlayer.characterId === 'zobo') {
+                const zAttack = ['attack1start','attack1mid','attack1return','attack2','attack3'];
+                if (!zAttack.includes(myPlayer.zoboState || '')) {
+                  myPlayer.zoboState = moveTarget !== 0 ? 'walk' : 'idle';
+                }
+              }
+              // Update Orbo movement state
+              if (myPlayer.characterId === 'orbo') {
+                const isDeflecting = (myPlayer.deflectTimer || 0) > Date.now();
+                if (isDeflecting) {
+                  myPlayer.orboState = moveTarget !== 0 ? 'moveDeflect' : 'idleDeflect';
+                } else {
+                  myPlayer.orboState = moveTarget !== 0 ? 'move' : 'idle';
                 }
               }
 
@@ -1683,6 +1754,25 @@ export default function GameCanvas() {
               ctx.fillStyle = '#92400e';
               ctx.fillRect(-5, -3, 10, 6);
               ctx.restore();
+          } else if (proj.type === 'spider') {
+              ctx.fillStyle = '#ffffff';
+              ctx.beginPath(); ctx.arc(proj.x, proj.y, 8, 0, Math.PI * 2); ctx.fill();
+          } else if (proj.type === 'web') {
+              ctx.fillStyle = '#cbd5e1';
+              ctx.beginPath(); ctx.arc(proj.x, proj.y, 10, 0, Math.PI * 2); ctx.fill();
+          }
+      });
+
+      // Draw Zobo arm tethers
+      (Object.values(zoboArmRef.current) as { x1: number; y1: number; x2: number; y2: number; active: boolean }[]).forEach(arm => {
+          if (arm.active) {
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 4;
+              ctx.beginPath();
+              ctx.moveTo(arm.x1, arm.y1);
+              ctx.lineTo(arm.x2, arm.y2);
+              ctx.stroke();
+              ctx.lineWidth = 1;
           }
       });
 
@@ -1765,8 +1855,8 @@ export default function GameCanvas() {
             ctx.restore();
         }
 
-        // ── Pinedo: hidden from canvas — rendered as DOM overlay beneath ──────
-        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco') {
+        // ── Pinedo/Mirage/Coco/Orbo/Zobo: hidden from canvas — rendered as DOM overlay beneath ──────
+        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo') {
             hideStandardBody = true;
         }
 
@@ -2482,9 +2572,76 @@ export default function GameCanvas() {
                       width: drawW,
                       height: drawH,
                       imageRendering: 'pixelated',
-                      // Sprites face LEFT by default — flip for right-facing
                       transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
                       transformOrigin: 'center center',
+                    }}
+                  />
+                );
+              })}
+              {/* Orbo DOM sprite overlay */}
+              {playersList.filter(p => p.characterId === 'orbo').map(p => {
+                const isDeflecting = (p.deflectTimer || 0) > Date.now();
+                const isMoving = p.velocity?.x !== 0;
+                let src = '/Orbo/OrboIdle.png';
+                if (p.orboState === 'attack3') src = '/Orbo/OrboAttack3.gif';
+                else if (p.orboState === 'attack2' || p.orboState === 'attack2Deflect') src = isDeflecting ? '/Orbo/OrboAttack2Deflect.gif' : '/Orbo/Orboattack2.gif';
+                else if (isDeflecting) src = isMoving ? '/Orbo/OrboMoveDeflect.gif' : '/Orbo/OrboIdleDeflect.png';
+                else src = isMoving ? '/Orbo/OrboMove.gif' : '/Orbo/OrboIdle.png';
+
+                const drawH = 62;
+                const drawW = drawH;
+                const bottom = p.y + p.height + 4;
+                const top = bottom - drawH;
+                const playerCenterX = p.x + p.width / 2;
+                const left = playerCenterX - drawW / 2;
+
+                return (
+                  <img
+                    key={p.id + '-orbo-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left, top,
+                      width: drawW, height: drawH,
+                      imageRendering: 'pixelated',
+                      transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
+                      transformOrigin: 'center center',
+                    }}
+                  />
+                );
+              })}
+              {/* Zobo DOM sprite overlay */}
+              {playersList.filter(p => p.characterId === 'zobo').map(p => {
+                const state = p.zoboState || 'idle';
+                let src = '/Zobo/ZoboIdle.gif';
+                if (state === 'walk') src = '/Zobo/ZoboWalkgif.gif';
+                else if (state === 'attack1start') src = '/Zobo/ZoboAttack1Startgif.gif';
+                else if (state === 'attack1mid' || state === 'attack1return') src = '/Zobo/ZoboAttack1middle.png';
+                else if (state === 'attack2') src = '/Zobo/ZoboAttack2.gif';
+                else if (state === 'attack3') src = '/Zobo/ZoboIdle.gif';
+
+                const drawH = 80;
+                const drawW = drawH;
+                const bottom = p.y + p.height + 4;
+                const top = bottom - drawH;
+                const playerCenterX = p.x + p.width / 2;
+                const left = playerCenterX - drawW / 2;
+                const isRegatherGlow = (p.activeEffects?.['zoboRegather'] || 0) > Date.now();
+
+                return (
+                  <img
+                    key={p.id + '-zobo-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left, top,
+                      width: drawW, height: drawH,
+                      imageRendering: 'pixelated',
+                      transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
+                      transformOrigin: 'center center',
+                      filter: isRegatherGlow ? 'drop-shadow(0 0 10px #22c55e)' : (state === 'attack3' ? 'drop-shadow(0 0 6px rgba(34,197,94,0.5))' : 'none')
                     }}
                   />
                 );
@@ -2517,6 +2674,8 @@ export default function GameCanvas() {
                       <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : p.characterId === 'coco' ? (
                       <img src="/Coco/CocoIcon.png" alt="Coco" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : p.characterId === 'zobo' ? (
+                      <img src="/Zobo/ZoboIcon.png" alt="Zobo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
                     )}

@@ -83,6 +83,16 @@ interface Player {
   cocoRageActive?: boolean;
   cocoRageEnd?: number;
   cocoFountainId?: string;
+  // Zobo sprite/ability state
+  zoboState?: 'idle' | 'walk' | 'attack1start' | 'attack1mid' | 'attack1return' | 'attack2' | 'attack3';
+  zoboArm1Active?: boolean;
+  zoboArm1ProjId?: string;
+  zoboArm1SpawnX?: number;
+  zoboArm1SpawnY?: number;
+  zoboRegatherEnd?: number;
+  zoboRegatherHit?: boolean;
+  // Orbo sprite state
+  orboState?: 'idle' | 'move' | 'idleDeflect' | 'moveDeflect' | 'attack2' | 'attack2Deflect' | 'attack3';
   lastHitBy?: { id: string, time: number };
   brambleId?: string;
   brambleImmune?: number;
@@ -102,6 +112,7 @@ const ROSTER = [
   { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park' },
   { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
   { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park' },
+  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park' },
   { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
   { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
@@ -149,7 +160,7 @@ interface MatchSettings {
 
 interface Projectile {
     id: string;
-    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate';
+    type: 'card' | 'boomerang' | 'fireball' | 'plate' | 'thorn' | 'laser' | 'lantern' | 'book' | 'dart' | 'fallingBook' | 'inkBlob' | 'bullet' | 'paintLob' | 'paintTrap' | 'chocolate' | 'spider' | 'web';
     x: number;
     y: number;
     startX?: number;
@@ -341,11 +352,15 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
     target.health = char.hp;
     target.maxHealth = char.hp;
     target.speedMult = char.speedMult;
-    target.width = char.id === 'wax' ? 100 : char.id === 'mirage' ? 12 : char.id === 'coco' ? 40 : 50;
-    target.height = char.id === 'wax' ? 120 : char.id === 'mirage' ? 40 : char.id === 'coco' ? 65 : 50;
+    target.width = charWidth(char.id);
+    target.height = charHeight(char.id);
     target.color = char.color;
     target.x = Math.random() * 400 + 312;
     target.y = 50;
+    // Reset character-specific state
+    target.zoboState = 'idle'; target.zoboArm1Active = false; target.zoboArm1ProjId = undefined;
+    target.orboState = 'idle'; target.pinedoState = 'idle'; target.mirageState = 'idle';
+    target.cocoState = 'idle'; target.boomerangActive = false;
 
     io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'characterChange', newCharacterId: target.characterId });
     io.to(targetLobby.id).emit('characterChange', { id: target.id, newCharacterId: target.characterId });
@@ -359,8 +374,8 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
       killer.health = killerChar.hp;
       killer.maxHealth = killerChar.hp;
       killer.speedMult = killerChar.speedMult;
-      killer.width = killerChar.id === 'wax' ? 100 : killerChar.id === 'mirage' ? 12 : killerChar.id === 'coco' ? 40 : 50;
-      killer.height = killerChar.id === 'wax' ? 120 : killerChar.id === 'mirage' ? 40 : killerChar.id === 'coco' ? 65 : 50;
+      killer.width = charWidth(killerChar.id);
+      killer.height = charHeight(killerChar.id);
       killer.color = killerChar.color;
 
       io.to(targetLobby.id).emit('playerEffect', { id: killer.id, effect: 'characterChange', newCharacterId: killer.characterId });
@@ -380,8 +395,8 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
       target.health = char.hp;
       target.maxHealth = char.hp;
       target.speedMult = char.speedMult;
-      target.width = char.id === 'wax' ? 100 : char.id === 'mirage' ? 12 : char.id === 'coco' ? 40 : 50;
-      target.height = char.id === 'wax' ? 120 : char.id === 'mirage' ? 40 : char.id === 'coco' ? 65 : 50;
+      target.width = charWidth(char.id);
+      target.height = charHeight(char.id);
       target.color = char.color;
       target.currentRosterIndex = nextIndex;
       if (lobbyPlayer) lobbyPlayer.currentRosterIndex = nextIndex;
@@ -462,6 +477,10 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
     }
 
     target.health -= damage;
+    if (target.characterId === 'zobo' && target.health > 0) {
+        recalcZoboSpeed(target);
+        target.zoboRegatherHit = true; // interrupt regather
+    }
     if (attackerId) {
         target.lastHitBy = { id: attackerId, time: Date.now() };
     }
@@ -510,6 +529,30 @@ function getDefaultSettings(gameMode: GameMode): MatchSettings {
     default:
       return {};
   }
+}
+
+function charWidth(id: string | null | undefined): number {
+  if (id === 'wax') return 100;
+  if (id === 'mirage') return 12;
+  if (id === 'coco') return 40;
+  if (id === 'orbo') return 17;
+  if (id === 'zobo') return 6;
+  return 50;
+}
+
+function charHeight(id: string | null | undefined): number {
+  if (id === 'wax') return 120;
+  if (id === 'mirage') return 40;
+  if (id === 'coco') return 65;
+  if (id === 'orbo') return 44;
+  if (id === 'zobo') return 70;
+  return 50;
+}
+
+// Recalculate Zobo speed based on current HP
+function recalcZoboSpeed(player: Player) {
+  const hpLost = Math.max(0, 150 - player.health);
+  player.speedMult = 0.2 + Math.floor(hpLost / 10) * 0.1;
 }
 
 setInterval(() => {
@@ -820,7 +863,52 @@ setInterval(() => {
             if (proj.angle !== undefined && proj.rotationSpeed !== undefined) {
                 proj.angle += proj.rotationSpeed;
             }
-        } else if (proj.type === 'boomerang') {            if (proj.life > 30) {
+        } else if (proj.type === 'spider') {
+            // Zobo arm: fast out, then return to spawn point
+            if (proj.life > 45) {
+                // outbound — keep velocity
+            } else {
+                // returning — head back to spawn point
+                const tx = proj.startX ?? proj.x;
+                const ty = proj.startY ?? proj.y;
+                const dx = tx - proj.x;
+                const dy = ty - proj.y;
+                const len = Math.hypot(dx, dy);
+                if (len < 15) {
+                    // Returned — unstun owner
+                    const owner = players[proj.ownerId];
+                    if (owner) {
+                        owner.zoboArm1Active = false;
+                        owner.zoboArm1ProjId = undefined;
+                        owner.zoboState = 'idle';
+                        const ownerLobby = getLobbyByPlayerId(owner.id);
+                        if (ownerLobby) {
+                            io.to(owner.id).emit('clearStun');
+                            io.to(ownerLobby.id).emit('playerEffect', { id: owner.id, effect: 'zoboStateChange', state: 'idle' });
+                        }
+                    }
+                    proj.life = -1;
+                } else {
+                    proj.vx = (dx / len) * 22;
+                    proj.vy = (dy / len) * 22;
+                }
+            }
+            // Emit arm tether update so client can draw the line
+            const zoboOwner = players[proj.ownerId];
+            if (zoboOwner) {
+                const ownerLobby = getLobbyByPlayerId(proj.ownerId);
+                if (ownerLobby) {
+                    const spawnX = proj.startX ?? proj.x;
+                    const spawnY = proj.startY ?? proj.y;
+                    io.to(ownerLobby.id).emit('zoboArmUpdate', {
+                        ownerId: proj.ownerId, x1: spawnX, y1: spawnY, x2: proj.x, y2: proj.y, active: true
+                    });
+                }
+            }
+        } else if (proj.type === 'web') {
+            proj.vy += 0.4; // arc gravity — no other special logic needed
+        } else if (proj.type === 'boomerang') {
+            if (proj.life > 30) {
                 proj.vx -= (proj.vx > 0 ? 0.5 : -0.5);
             } else {
                 const owner = players[proj.ownerId];
@@ -914,8 +1002,12 @@ setInterval(() => {
                             player.paintCovered = Date.now() + 4000;
                             io.to(player.id).emit('screenEffect', { type: 'paintCover', duration: 4000 });
                         }
+                        // Web — stun 90 frames (~3s)
+                        if (proj.type === 'web') {
+                            io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 90 });
+                        }
                     }
-                    if (proj.type !== 'boomerang' && proj.type !== 'chocolate') {
+                    if (proj.type !== 'boomerang' && proj.type !== 'chocolate' && proj.type !== 'spider') {
                         delete projectiles[id];
                         hit = true;
                         break;
@@ -1400,8 +1492,8 @@ io.on('connection', (socket) => {
           characterId: randomChar.id,
           x: 412 + (idx * 60) - (readyPlayers.length * 30),
           y: randomChar.id === 'wax' ? 350 : 50,
-          width: randomChar.id === 'wax' ? 100 : randomChar.id === 'mirage' ? 12 : randomChar.id === 'coco' ? 40 : 50,
-          height: randomChar.id === 'wax' ? 120 : randomChar.id === 'mirage' ? 40 : randomChar.id === 'coco' ? 65 : 50,
+          width: charWidth(randomChar.id),
+          height: charHeight(randomChar.id),
           color: char ? char.color : '#fff',
           health: maxHp,
           maxHealth: maxHp,
@@ -1421,89 +1513,55 @@ io.on('connection', (socket) => {
       readyPlayers.forEach((player, idx) => {
         const roster = player.rosterChoice || [];
         if (roster.length === 0) {
-          // Fallback to selected character if no roster
           const char = ROSTER.find(c => c.id === player.characterId);
           const maxHp = char ? char.hp : 100;
-          
           players[player.id] = {
-            id: player.id,
-            characterId: player.characterId,
+            id: player.id, characterId: player.characterId,
             x: 412 + (idx * 60) - (readyPlayers.length * 30),
             y: player.characterId === 'wax' ? 350 : 50,
-            width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
-            height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+            width: charWidth(player.characterId), height: charHeight(player.characterId),
             color: char ? char.color : '#fff',
-            health: maxHp,
-            maxHealth: maxHp,
-            facing: 'right',
-            velocity: { x: 0, y: 0 },
-            isAttacking: false,
-            isGrounded: false,
-            isGrabbingLedge: false,
-            isStunned: false,
-            isFastFalling: false,
-            score: 0,
-            speedMult: char ? char.speedMult : 1.0,
-            currentRosterIndex: 0
+            health: maxHp, maxHealth: maxHp,
+            facing: 'right', velocity: { x: 0, y: 0 },
+            isAttacking: false, isGrounded: false, isGrabbingLedge: false,
+            isStunned: false, isFastFalling: false,
+            score: 0, speedMult: char ? char.speedMult : 1.0, currentRosterIndex: 0
           };
           player.currentRosterIndex = 0;
         } else {
-          // Use first character from roster
           const firstCharId = roster[0];
           const char = ROSTER.find(c => c.id === firstCharId);
           const maxHp = char ? char.hp : 100;
-          
           players[player.id] = {
-            id: player.id,
-            characterId: firstCharId,
+            id: player.id, characterId: firstCharId,
             x: 412 + (idx * 60) - (readyPlayers.length * 30),
             y: firstCharId === 'wax' ? 350 : 50,
-            width: firstCharId === 'wax' ? 100 : firstCharId === 'mirage' ? 12 : firstCharId === 'coco' ? 40 : 50,
-            height: firstCharId === 'wax' ? 120 : firstCharId === 'mirage' ? 40 : firstCharId === 'coco' ? 65 : 50,
+            width: charWidth(firstCharId), height: charHeight(firstCharId),
             color: char ? char.color : '#fff',
-            health: maxHp,
-            maxHealth: maxHp,
-            facing: 'right',
-            velocity: { x: 0, y: 0 },
-            isAttacking: false,
-            isGrounded: false,
-            isGrabbingLedge: false,
-            isStunned: false,
-            isFastFalling: false,
-            score: 0,
-            speedMult: char ? char.speedMult : 1.0,
-            currentRosterIndex: 0
+            health: maxHp, maxHealth: maxHp,
+            facing: 'right', velocity: { x: 0, y: 0 },
+            isAttacking: false, isGrounded: false, isGrabbingLedge: false,
+            isStunned: false, isFastFalling: false,
+            score: 0, speedMult: char ? char.speedMult : 1.0, currentRosterIndex: 0
           };
-          // Initialize lobby player's roster index
           player.currentRosterIndex = 0;
         }
       });
     } else if (lobby.gameMode === 'chaos_rounds') {
-      // Chaos Rounds - same as FFA but with chaos effects
       readyPlayers.forEach((player, idx) => {
         const char = ROSTER.find(c => c.id === player.characterId);
         const maxHp = char ? char.hp : 100;
-        
         players[player.id] = {
-          id: player.id,
-          characterId: player.characterId,
+          id: player.id, characterId: player.characterId,
           x: 412 + (idx * 60) - (readyPlayers.length * 30),
           y: player.characterId === 'wax' ? 350 : 50,
-          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
-          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+          width: charWidth(player.characterId), height: charHeight(player.characterId),
           color: char ? char.color : '#fff',
-          health: maxHp,
-          maxHealth: maxHp,
-          facing: 'right',
-          velocity: { x: 0, y: 0 },
-          isAttacking: false,
-          isGrounded: false,
-          isGrabbingLedge: false,
-          isStunned: false,
-          isFastFalling: false,
-          score: 0,
-          speedMult: char ? char.speedMult : 1.0,
-          chaosMode: true
+          health: maxHp, maxHealth: maxHp,
+          facing: 'right', velocity: { x: 0, y: 0 },
+          isAttacking: false, isGrounded: false, isGrabbingLedge: false,
+          isStunned: false, isFastFalling: false,
+          score: 0, speedMult: char ? char.speedMult : 1.0, chaosMode: true
         };
       });
     } else {
@@ -1511,26 +1569,17 @@ io.on('connection', (socket) => {
       readyPlayers.forEach((player, idx) => {
         const char = ROSTER.find(c => c.id === player.characterId);
         const maxHp = char ? char.hp : 100;
-        
         players[player.id] = {
-          id: player.id,
-          characterId: player.characterId,
+          id: player.id, characterId: player.characterId,
           x: 412 + (idx * 60) - (readyPlayers.length * 30),
           y: player.characterId === 'wax' ? 350 : 50,
-          width: player.characterId === 'wax' ? 100 : player.characterId === 'mirage' ? 12 : player.characterId === 'coco' ? 40 : 50,
-          height: player.characterId === 'wax' ? 120 : player.characterId === 'mirage' ? 40 : player.characterId === 'coco' ? 65 : 50,
+          width: charWidth(player.characterId), height: charHeight(player.characterId),
           color: char ? char.color : '#fff',
-          health: maxHp,
-          maxHealth: maxHp,
-          facing: 'right',
-          velocity: { x: 0, y: 0 },
-          isAttacking: false,
-          isGrounded: false,
-          isGrabbingLedge: false,
-          isStunned: false,
-          isFastFalling: false,
-          score: 0,
-          speedMult: char ? char.speedMult : 1.0
+          health: maxHp, maxHealth: maxHp,
+          facing: 'right', velocity: { x: 0, y: 0 },
+          isAttacking: false, isGrounded: false, isGrabbingLedge: false,
+          isStunned: false, isFastFalling: false,
+          score: 0, speedMult: char ? char.speedMult : 1.0
         };
       });
     }
@@ -2003,6 +2052,102 @@ io.on('connection', (socket) => {
                   players[player.id].pinedoAttack3End = 0;
                   io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
               }, 1400);
+          }
+      } else if (player.characterId === 'zobo') {
+          if (data.ability === 1) {
+              // Can't use while arm is already out or in another attack state
+              if (player.zoboArm1Active || player.zoboState === 'attack2' || player.zoboState === 'attack3') {
+                  socket.emit('abilityCooldown', { ability: 1, frames: 15 }); return;
+              }
+              const now2 = Date.now();
+              player.zoboArm1Active = true;
+              player.zoboState = 'attack1start';
+              // Zobo spawn offset: hitbox topleft + (42, 52)
+              const spawnX = player.x + 42;
+              const spawnY = player.y + 52;
+              player.zoboArm1SpawnX = spawnX;
+              player.zoboArm1SpawnY = spawnY;
+              // Stun Zobo for entire duration of attack
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 9999 });
+              const lobby2 = getLobbyByPlayerId(player.id);
+              if (lobby2) io.to(lobby2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'attack1start' });
+              // After windup animation (~500ms), fire the spider projectile
+              setTimeout(() => {
+                  if (!players[player.id] || !players[player.id].zoboArm1Active) return;
+                  const pid = 'proj_' + entityIdCounter++;
+                  const spX = players[player.id].zoboArm1SpawnX ?? players[player.id].x + 42;
+                  const spY = players[player.id].zoboArm1SpawnY ?? players[player.id].y + 52;
+                  projectiles[pid] = {
+                      id: pid, type: 'spider',
+                      x: spX, y: spY,
+                      startX: spX, startY: spY,
+                      vx: players[player.id].facing === 'right' ? 22 : -22,
+                      vy: 0,
+                      ownerId: player.id,
+                      damage: 20,
+                      life: 90
+                  };
+                  players[player.id].zoboArm1ProjId = pid;
+                  players[player.id].zoboState = 'attack1mid';
+                  const l2 = getLobbyByPlayerId(player.id);
+                  if (l2) io.to(l2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'attack1mid' });
+              }, 500);
+          } else if (data.ability === 2) {
+              if (player.zoboArm1Active || player.zoboState === 'attack3') {
+                  socket.emit('abilityCooldown', { ability: 2, frames: 15 }); return;
+              }
+              player.zoboState = 'attack2';
+              const lobby2 = getLobbyByPlayerId(player.id);
+              if (lobby2) io.to(lobby2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'attack2' });
+              const castFacing = player.facing;
+              const castX = player.x + player.width / 2;
+              const castY = player.y;
+              // Lob shot — fire after a short animation delay
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  const pid = 'proj_' + entityIdCounter++;
+                  projectiles[pid] = {
+                      id: pid, type: 'web',
+                      x: castX, y: castY,
+                      vx: castFacing === 'right' ? 8 : -8,
+                      vy: -12,
+                      ownerId: player.id,
+                      damage: 5,
+                      life: 120
+                  };
+                  players[player.id].zoboState = 'idle';
+                  const l2 = getLobbyByPlayerId(player.id);
+                  if (l2) io.to(l2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'idle' });
+              }, 350);
+          } else if (data.ability === 3) {
+              if (player.zoboArm1Active || player.zoboState === 'attack3') {
+                  socket.emit('abilityCooldown', { ability: 3, frames: 15 }); return;
+              }
+              player.zoboState = 'attack3';
+              player.zoboRegatherEnd = Date.now() + 3000;
+              player.zoboRegatherHit = false;
+              // Stun self for 3 seconds
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 90 });
+              const lobby2 = getLobbyByPlayerId(player.id);
+              if (lobby2) io.to(lobby2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'attack3' });
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  const wasHit = players[player.id].zoboRegatherHit;
+                  players[player.id].zoboState = 'idle';
+                  players[player.id].zoboRegatherEnd = 0;
+                  io.to(player.id).emit('clearStun');
+                  const l2 = getLobbyByPlayerId(player.id);
+                  if (!wasHit) {
+                      // Heal 30 HP, cap at 150
+                      players[player.id].health = Math.min(150, players[player.id].health + 30);
+                      recalcZoboSpeed(players[player.id]);
+                      if (l2) {
+                          io.to(l2.id).emit('playerHealthChanged', { id: player.id, health: players[player.id].health });
+                          io.to(l2.id).emit('playerEffect', { id: player.id, effect: 'zoboRegatherSuccess' });
+                      }
+                  }
+                  if (l2) io.to(l2.id).emit('playerEffect', { id: player.id, effect: 'zoboStateChange', state: 'idle' });
+              }, 3000);
           }
       } else if (player.characterId === 'morka') {
           if (data.ability === 1) {
