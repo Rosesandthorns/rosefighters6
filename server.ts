@@ -437,8 +437,12 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
   // Apply 5s spawn protection (invincibility + attack/ability lockout)
   target.isInvincible = true;
   target.spawnLockoutEnd = Date.now() + 5000;
+  io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'invincibilityChange', isInvincible: true });
   setTimeout(() => {
-    if (players[target.id]) players[target.id].isInvincible = false;
+    if (players[target.id]) {
+      players[target.id].isInvincible = false;
+      io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'invincibilityChange', isInvincible: false });
+    }
   }, 5000);
 
   checkWinConditions(targetLobby);
@@ -1636,8 +1640,12 @@ io.on('connection', (socket) => {
       if (players[pId]) {
         players[pId].isInvincible = true;
         players[pId].spawnLockoutEnd = Date.now() + 5000;
+        io.to(lobby.id).emit('playerEffect', { id: pId, effect: 'invincibilityChange', isInvincible: true });
         setTimeout(() => {
-          if (players[pId]) players[pId].isInvincible = false;
+          if (players[pId]) {
+            players[pId].isInvincible = false;
+            io.to(lobby.id).emit('playerEffect', { id: pId, effect: 'invincibilityChange', isInvincible: false });
+          }
         }, 5000);
         lobbyPlayersMap[pId] = players[pId];
       }

@@ -723,6 +723,9 @@ export default function GameCanvas() {
             p.activeEffects = p.activeEffects || {};
             p.activeEffects['phantasmaFloat'] = Date.now() + ((data as any).duration || 2000);
         }
+        if (data.effect === 'invincibilityChange') {
+            p.isInvincible = (data as any).isInvincible;
+        }
     });
 
     newSocket.on('spawnOldTv', (data: { id: string; x: number; y: number; width: number; height: number; ownerId: string }) => {
@@ -1519,26 +1522,17 @@ export default function GameCanvas() {
           myPlayer.isFastFalling = false;
       }
       
-      // Pip/Nexus Hover
-      if (myPlayer.characterId === 'pip' || myPlayer.characterId === 'nexus') {
+      // Pip/Nexus/Phantasma (Ghost form) Hover mechanics — float over stage y-level
+      const isGhostFloat = myPlayer.characterId === 'phantasma' && myPlayer.phantasmaForm === 'ghost';
+      if (myPlayer.characterId === 'pip' || myPlayer.characterId === 'nexus' || isGhostFloat) {
           const platformTop = PLATFORMS[0].y;
-          const floatOffset = myPlayer.characterId === 'nexus' ? 10 : 0;
+          const floatOffset = myPlayer.characterId === 'nexus' ? 10 : (isGhostFloat ? -15 : 0);
           if (myPlayer.y > platformTop - myPlayer.height - floatOffset) {
               myPlayer.y = platformTop - myPlayer.height - floatOffset;
               myPlayer.velocity.y = 0;
               myPlayer.isGrounded = true;
               myPlayer.isFastFalling = false;
           }
-      }
-
-      // Phantasma Ghost Form — float above void (cap y at 750)
-      if (myPlayer.characterId === 'phantasma' && myPlayer.phantasmaForm === 'ghost') {
-          if (myPlayer.y > 720) {
-              myPlayer.y = 720;
-              myPlayer.velocity.y = Math.min(myPlayer.velocity.y, -2);
-          }
-          // Also reduce gravity effect in ghost form
-          if (!myPlayer.isGrounded) myPlayer.velocity.y *= 0.85;
       }
 
       // Side bounds (Blast zones)
@@ -2846,21 +2840,27 @@ export default function GameCanvas() {
               })}
               {/* OldTV objects left behind by Phantasma */}
               {playersList.filter(p => p.characterId === 'phantasma' && p.phantasmaOldTvs).flatMap(p =>
-                Object.values(p.phantasmaOldTvs || {}).map((tv: any) => (
-                  <img
-                    key={'oldtv-' + tv.id}
-                    src="/Phantasma/OldTV.png"
-                    alt=""
-                    style={{
-                      position: 'absolute',
-                      left: tv.x,
-                      top: tv.y,
-                      width: tv.width,
-                      height: tv.height,
-                      imageRendering: 'pixelated',
-                    }}
-                  />
-                ))
+                Object.values(p.phantasmaOldTvs || {}).map((tv: any) => {
+                  const drawH = 62;
+                  const drawW = 62;
+                  const centerX = tv.x + tv.width / 2;
+                  const bottomY = tv.y + tv.height;
+                  return (
+                    <img
+                      key={'oldtv-' + tv.id}
+                      src="/Phantasma/OldTV.png"
+                      alt=""
+                      style={{
+                        position: 'absolute',
+                        left: centerX - drawW / 2,
+                        top: bottomY - drawH,
+                        width: drawW,
+                        height: drawH,
+                        imageRendering: 'pixelated',
+                      }}
+                    />
+                  );
+                })
               )}
             </div>
         </div>
