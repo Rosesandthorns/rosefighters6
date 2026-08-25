@@ -680,15 +680,20 @@ export default function GameCanvas() {
             p.activeEffects = p.activeEffects || {};
             p.activeEffects['zoboRegather'] = Date.now() + 1500;
         }
-        if (data.effect === 'cocoRage') {
+        if (data.effect === 'cocoRage' || data.effect === 'cocoRageHit') {
             p.cocoRageActive = true;
             p.activeEffects = p.activeEffects || {};
-            p.activeEffects['cocoRage'] = Date.now() + (data as any).duration || 20000;
-        }
-        if (data.effect === 'cocoRageHit') {
-            p.cocoRageActive = true;
-            p.activeEffects = p.activeEffects || {};
-            p.activeEffects['cocoRage'] = Date.now() + (data as any).duration || 20000;
+            const dur = (data as any).duration || 4000;
+            p.activeEffects['cocoRage'] = Date.now() + dur;
+            // Instantly apply local 8x speed boost
+            p.speedMult = (p.speedMult || 1.0) * 8;
+            setTimeout(() => {
+                if (playersRef.current[data.id]) {
+                    const char = ROSTER.find(c => c.id === playersRef.current[data.id].characterId);
+                    playersRef.current[data.id].speedMult = char ? char.speedMult : 1.0;
+                    delete playersRef.current[data.id].activeEffects?.['cocoRage'];
+                }
+            }, dur);
         }
     });
 

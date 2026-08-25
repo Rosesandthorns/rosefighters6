@@ -1976,15 +1976,18 @@ io.on('connection', (socket) => {
               player.activeEffects['cocoRage'] = Date.now() + duration;
               io.emit('playerEffect', { id: player.id, effect: 'cocoRage', duration });
 
-              // Grant 8x speed boost & cloud visual to all players within 250px AOE
-              Object.values(players).forEach(p => {
-                  if (p.id === player.id) return;
+              // Grant 8x speed boost & cloud visual to all players within 250px AOE in the same lobby
+              const lobbyPlayerIds = Object.keys(lobby.players);
+              lobbyPlayerIds.forEach(targetId => {
+                  if (targetId === player.id) return;
+                  const p = players[targetId];
+                  if (!p) return;
                   const dist = Math.hypot(p.x + p.width/2 - (player.x + player.width/2), p.y + p.height/2 - (player.y + player.height/2));
                   if (dist <= 250) {
                       p.speedMult = (p.speedMult || 1.0) * 8;
                       p.activeEffects = p.activeEffects || {};
                       p.activeEffects['cocoRageHit'] = Date.now() + duration;
-                      io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration });
+                      io.to(lobby.id).emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration });
                       setTimeout(() => {
                           if (players[p.id]) {
                               delete players[p.id].activeEffects?.['cocoRageHit'];
