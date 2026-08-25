@@ -653,26 +653,6 @@ setInterval(() => {
             const player = players[playerId];
             if (!player || player.isEliminated) continue;
 
-            // Coco Rage Cloud aura tick (damages and slows enemies inside 250px aura)
-            if (player.characterId === 'coco' && player.cocoRageActive && player.cocoRageEnd && now < player.cocoRageEnd) {
-                if (now % 500 < 35) {
-                    for (const targetId of lobbyPlayerIds) {
-                        if (targetId === player.id) continue;
-                        const target = players[targetId];
-                        if (!target || target.isEliminated) continue;
-                        const dist = Math.hypot(target.x + target.width/2 - (player.x + player.width/2), target.y + target.height/2 - (player.y + player.height/2));
-                        if (dist <= 250) {
-                            applyDamage(target, 5, player.id);
-                            target.speedMult = (target.speedMult || 1.0) * 0.5;
-                            io.to(target.id).emit('applyKnockback', { vx: target.x > player.x ? 4 : -4, vy: -2, stunFrames: 5 });
-                            target.activeEffects = target.activeEffects || {};
-                            target.activeEffects['cocoRageHit'] = now + 1000;
-                            io.emit('playerEffect', { id: target.id, effect: 'cocoRageHit', duration: 1000 });
-                        }
-                    }
-                }
-            }
-
             if (player.womboTimer && player.womboTimer > now) {
                 if (now % 300 < 35) {
                     for (const targetId of lobbyPlayerIds) {
@@ -1987,14 +1967,34 @@ io.on('connection', (socket) => {
               if (hpLost > 0) player.health -= hpLost;
               io.emit('playerHealthChanged', { id: player.id, health: player.health });
               
-              // Activate rage cloud aura for 12 seconds
+              const duration = 4000; // 4 seconds duration
               player.cocoRageActive = true;
-              player.cocoRageEnd = Date.now() + 12000;
-              player.speedMult = 0.8 * 2.2; // 2.2x speed boost for Coco
-              io.emit('playerEffect', { id: player.id, effect: 'cocoRage', duration: 12000 });
+              player.cocoRageEnd = Date.now() + duration;
+              player.speedMult = (player.speedMult || 0.8) * 8; // 8x speed boost for Coco
               
               player.activeEffects = player.activeEffects || {};
-              player.activeEffects['cocoRage'] = Date.now() + 12000;
+              player.activeEffects['cocoRage'] = Date.now() + duration;
+              io.emit('playerEffect', { id: player.id, effect: 'cocoRage', duration });
+
+              // Grant 8x speed boost & cloud visual to all players within 250px AOE
+              Object.values(players).forEach(p => {
+                  if (p.id === player.id) return;
+                  const dist = Math.hypot(p.x + p.width/2 - (player.x + player.width/2), p.y + p.height/2 - (player.y + player.height/2));
+                  if (dist <= 250) {
+                      p.speedMult = (p.speedMult || 1.0) * 8;
+                      p.activeEffects = p.activeEffects || {};
+                      p.activeEffects['cocoRageHit'] = Date.now() + duration;
+                      io.emit('playerEffect', { id: p.id, effect: 'cocoRageHit', duration });
+                      setTimeout(() => {
+                          if (players[p.id]) {
+                              delete players[p.id].activeEffects?.['cocoRageHit'];
+                              const char = ROSTER.find(c => c.id === p.characterId);
+                              players[p.id].speedMult = char ? char.speedMult : 1.0;
+                          }
+                      }, duration);
+                  }
+              });
+
               player.cocoState = 'attack13';
               io.emit('playerEffect', { id: player.id, effect: 'cocoState', state: 'attack13' });
               
@@ -2002,10 +2002,11 @@ io.on('connection', (socket) => {
               setTimeout(() => { 
                   if (players[player.id]) { 
                       players[player.id].cocoRageActive = false; 
+                      delete players[player.id].activeEffects?.['cocoRage'];
                       const char = ROSTER.find(c => c.id === 'coco'); 
                       players[player.id].speedMult = char ? char.speedMult : 0.8; 
                   } 
-              }, 12000);
+              }, duration);
           }
       } else if (player.characterId === 'pinedo') {
           if (data.ability === 1) {
