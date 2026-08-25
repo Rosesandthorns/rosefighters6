@@ -2205,6 +2205,7 @@ io.on('connection', (socket) => {
                       p.phantasmaState = 'idle';
                       p.isInvincible = false;
                       io.to(lobby.id).emit('playerEffect', { id: p.id, effect: 'phantasmaFormChange', form: 'tv' });
+                      io.to(lobby.id).emit('playerEffect', { id: p.id, effect: 'phantasmaState', state: 'idle' });
                   }, 1000);
               }
           }

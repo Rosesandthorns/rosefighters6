@@ -2868,7 +2868,7 @@ export default function GameCanvas() {
                 );
               })}
               {/* OldTV objects left behind by Phantasma */}
-              {playersList.filter(p => p.characterId === 'phantasma' && p.phantasmaOldTvs).flatMap(p =>
+              {playersList.filter(p => p.phantasmaOldTvs).flatMap(p =>
                 Object.values(p.phantasmaOldTvs || {}).map((tv: any) => {
                   // OldTV rendered at 62px (exact same visual size as Phantasma TV Form)
                   const drawH = 62;
