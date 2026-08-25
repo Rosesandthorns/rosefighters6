@@ -389,8 +389,9 @@ export default function GameCanvas() {
     newSocket.on('lobbyUpdate', (lobby: Lobby) => {
       setCurrentLobby(lobby);
       setSelectedGameMode(lobby.gameMode);
-      // Sync local roster with server
-      const me = lobby.players[playerId];
+      // Sync local roster with server using socket.id or playerId state
+      const myId = newSocket.id;
+      const me = lobby.players[myId] || (playerId ? lobby.players[playerId] : undefined);
       if (me?.rosterChoice) {
         setLocalRoster(me.rosterChoice);
       }
@@ -407,17 +408,18 @@ export default function GameCanvas() {
     });
 
     newSocket.on('adminChanged', (data: { newAdminId: string }) => {
-      if (currentLobby) {
-        setCurrentLobby({ ...currentLobby, adminId: data.newAdminId });
-      }
+      setCurrentLobby(prev => prev ? ({ ...prev, adminId: data.newAdminId }) : null);
     });
 
     newSocket.on('lobbyClosed', (data: { lobbyId: string }) => {
-      if (currentLobby?.id === data.lobbyId) {
-        setCurrentLobby(null);
-        setPlayerId('');
-        setScreen('main_menu');
-      }
+      setCurrentLobby(prev => {
+        if (prev?.id === data.lobbyId) {
+          setPlayerId('');
+          setScreen('main_menu');
+          return null;
+        }
+        return prev;
+      });
     });
 
     newSocket.on('gameStart', (data: { players: Record<string, Player>, lobby: Lobby }) => {
@@ -434,6 +436,7 @@ export default function GameCanvas() {
     newSocket.on('gameEnd', (data: { winnerId: string, reason: string }) => {
       alert(`Game Over! Winner: ${data.winnerId} (${data.reason})`);
       setScreen('lobby');
+      setSelectedCharacter(null);
     });
 
     newSocket.on('chaosEvent', (data: { event: string }) => {
@@ -2189,8 +2192,9 @@ export default function GameCanvas() {
   }
 
   if (screen === 'lobby') {
-    const me = currentLobby?.players[playerId];
-    const isAdmin = currentLobby?.adminId === playerId;
+    const effectivePlayerId = playerId || myId;
+    const me = currentLobby?.players[effectivePlayerId];
+    const isAdmin = currentLobby?.adminId === effectivePlayerId;
     const isReady = me?.isReady;
     
     return (
@@ -2275,7 +2279,7 @@ export default function GameCanvas() {
                      const playersArray = Object.values(currentLobby?.players || {}) as LobbyPlayer[];
                const playerOwner = playersArray.find(p => p.characterId === char.id);
                const isTaken = !!playerOwner;
-               const isMe = playerOwner?.id === playerId;
+               const isMe = playerOwner?.id === effectivePlayerId;
                
                // For roster choice mode, check if character is in my roster
                const isInMyRoster = localRoster.includes(char.id);
