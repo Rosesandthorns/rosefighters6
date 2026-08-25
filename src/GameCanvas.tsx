@@ -713,6 +713,7 @@ export default function GameCanvas() {
         if (data.effect === 'phantasmaFormChange') {
             const newForm = (data as any).form as 'tv' | 'ghost';
             p.phantasmaForm = newForm;
+            p.phantasmaState = 'idle';
             if (newForm === 'ghost') {
                 p.width = 16; p.height = 109; p.speedMult = 2.0;
             } else {
