@@ -1750,8 +1750,14 @@ io.on('connection', (socket) => {
       const isGhostFloat = players[socket.id].characterId === 'phantasma' && players[socket.id].phantasmaForm === 'ghost';
       if (players[socket.id].y > 800 && !isGhostFloat) {
         handlePlayerDeath(players[socket.id], undefined, 'void');
-      } else if (lobby) {
-        socket.to(lobby.id).emit('playerMoved', players[socket.id]);
+      } else {
+        // Hard horizontal boundary — clamp before broadcasting
+        const p = players[socket.id];
+        if (p.x < 0) { p.x = 0; p.velocity = p.velocity || { x: 0, y: 0 }; p.velocity.x = 0; }
+        else if (p.x + p.width > 1024) { p.x = 1024 - p.width; p.velocity = p.velocity || { x: 0, y: 0 }; p.velocity.x = 0; }
+        if (lobby) {
+          socket.to(lobby.id).emit('playerMoved', players[socket.id]);
+        }
       }
     }
   });

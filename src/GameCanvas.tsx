@@ -1432,6 +1432,17 @@ export default function GameCanvas() {
           myPlayer.y += myPlayer.velocity.y;
       }
 
+      // Hard horizontal world boundary — keeps all characters on screen
+      const WORLD_LEFT = 0;
+      const WORLD_RIGHT = 1024;
+      if (myPlayer.x < WORLD_LEFT) {
+          myPlayer.x = WORLD_LEFT;
+          myPlayer.velocity.x = 0;
+      } else if (myPlayer.x + myPlayer.width > WORLD_RIGHT) {
+          myPlayer.x = WORLD_RIGHT - myPlayer.width;
+          myPlayer.velocity.x = 0;
+      }
+
       // Ledge grab detection (falling near main stage edge)
       if (!myPlayer.isGrounded && !myPlayer.isGrabbingLedge && myPlayer.velocity.y > 0 && ledgeGrabCooldownRef.current === 0 && !myPlayer.isStunned) {
           const mainStage = PLATFORMS[0];
@@ -2717,7 +2728,7 @@ export default function GameCanvas() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,_#1a1a2e_0%,_#050508_70%)] opacity-50 pointer-events-none"></div>
       <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4f46e5 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
 
-      <header className="relative z-10 flex justify-between items-center px-4 sm:px-12 py-3 sm:py-4 shrink-0">
+      <header className="relative z-10 flex justify-between items-center px-4 sm:px-6 py-2 shrink-0">
         <div className="flex flex-col">
           <h1 className="text-lg sm:text-2xl font-black tracking-tighter italic">ROSE FIGHTERS <span className="text-indigo-500">α</span></h1>
         </div>
@@ -2742,21 +2753,66 @@ export default function GameCanvas() {
         </div>
       </header>
 
-      <main className="relative flex-1 flex items-center justify-center overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-48 h-2 bg-indigo-500/30 rounded-full blur-sm pointer-events-none"></div>
-        <div className="absolute top-1/4 right-1/4 w-48 h-2 bg-purple-500/30 rounded-full blur-sm pointer-events-none"></div>
-        
-        <div className="relative z-10 shadow-[0_10px_40px_rgba(0,0,0,0.8)] rounded-none sm:rounded-xl border-t border-white/10 overflow-hidden bg-black/60 w-full sm:w-auto">
-            <canvas
-              ref={canvasRef}
-              width={1024}
-              height={600}
-              className="block w-full h-auto sm:w-[1024px] sm:h-[600px]"
-              style={{ imageRendering: 'pixelated' }}
-              onContextMenu={(e) => e.preventDefault()}
-            />
-            {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
-            <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600 }}>
+      <main className="relative flex-1 flex flex-row items-stretch overflow-hidden min-h-0">
+
+        {/* ── Left HP panel: P1 + P3 ── */}
+        <div className="hidden sm:flex flex-col gap-2 justify-center px-2 py-2 w-[168px] shrink-0 z-10">
+          {playersList.slice(0, 4).filter((_, i) => i % 2 === 0).map((p, i) => {
+            const idx = i * 2;
+            const colors = [
+              { bg: 'bg-indigo-600/20', border: 'border-indigo-500/50', iconBg: 'bg-indigo-900/50', iconBorder: 'border-indigo-400/30', text: 'text-indigo-400', muted: 'text-indigo-300' },
+              { bg: 'bg-rose-600/20',   border: 'border-rose-500/50',   iconBg: 'bg-rose-900/50',   iconBorder: 'border-rose-400/30',   text: 'text-rose-400',   muted: 'text-rose-300' },
+            ];
+            const c = colors[i] ?? colors[0];
+            const isMe = p.id === myId;
+            const name = isMe ? `P${idx+1} • YOU` : `P${idx+1} • P-${p.id.substring(0,4).toUpperCase()}`;
+            return (
+              <div key={p.id} className="relative">
+                <div className={`absolute inset-0 ${c.bg} blur-xl rounded-xl`}></div>
+                <div className={`relative bg-black/60 border ${c.border} rounded-xl p-2 flex items-center gap-2`}>
+                  <div className={`w-10 h-10 ${c.iconBg} rounded-lg border ${c.iconBorder} flex items-center justify-center overflow-hidden shrink-0`}>
+                    {p.characterId === 'pinedo' ? <img src="/Pinedo/PinedoIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'mirage' ? <img src="/Mirage/MirageIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'coco'   ? <img src="/Coco/CocoIcon.png"    alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'zobo'   ? <img src="/Zobo/ZoboIcon.png"    alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'orbo'   ? <img src="/Orbo/OrboIdle.png"    alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'phantasma' ? <img src="/Phantasma/PhantasmaIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'chester' ? <img src="/Chester/ChesterIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'wisp'   ? <img src="/Wisp/WispMPIcon.png"  alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : <div className="w-7 h-7 rounded" style={{backgroundColor: p.color}}></div>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline">
+                      <span className={`text-[8px] uppercase tracking-widest ${c.muted} truncate`}>{name}</span>
+                      <span className={`text-[8px] ${c.muted}`}>{p.score}K</span>
+                    </div>
+                    <span className="text-xs font-bold uppercase tracking-tighter text-white truncate block">{ROSTER.find(r => r.id === p.characterId)?.name || '?'}</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-xl font-black italic tracking-tighter text-white">{p.health}</span>
+                      <span className={`text-xs font-bold ${c.text}`}>HP</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Canvas ── */}
+        <div className="relative flex-1 flex items-center justify-center overflow-hidden min-w-0">
+          <div className="absolute top-1/4 left-1/4 w-48 h-2 bg-indigo-500/30 rounded-full blur-sm pointer-events-none"></div>
+          <div className="absolute top-1/4 right-1/4 w-48 h-2 bg-purple-500/30 rounded-full blur-sm pointer-events-none"></div>
+          <div className="relative z-10 shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden bg-black/60">
+              <canvas
+                ref={canvasRef}
+                width={1024}
+                height={600}
+                className="block w-full h-auto"
+                style={{ imageRendering: 'pixelated', maxHeight: '100%' }}
+                onContextMenu={(e) => e.preventDefault()}
+              />
+              {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
+              <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600 }}>
               {/* Spinning head projectiles */}
               {pinedoProjectiles.map(proj => (
                 <img
@@ -3201,60 +3257,44 @@ export default function GameCanvas() {
                 })
               )}
             </div>
+          </div>
         </div>
-      </main>
 
-      <footer className="relative z-10 shrink-0">
-        {/* Desktop: full cards */}
-        <div className="hidden sm:grid sm:grid-cols-2 xl:grid-cols-4 gap-4 px-6 pb-6">
-          {playersList.slice(0, 4).map((p, idx) => {
-            const isMe = p.id === myId;
-            const name = isMe ? `P${idx + 1} • YOU` : `P${idx + 1} • P-${p.id.substring(0, 4).toUpperCase()}`;
+        {/* ── Right HP panel: P2 + P4 ── */}
+        <div className="hidden sm:flex flex-col gap-2 justify-center px-2 py-2 w-[168px] shrink-0 z-10">
+          {playersList.slice(0, 4).filter((_, i) => i % 2 === 1).map((p, i) => {
+            const idx = i * 2 + 1;
             const colors = [
-              { bg: 'bg-indigo-600/20', border: 'border-indigo-500/50', iconBg: 'bg-indigo-900/50', iconBorder: 'border-indigo-400/30', text: 'text-indigo-400', muted: 'text-indigo-300' },
               { bg: 'bg-purple-600/20', border: 'border-purple-500/50', iconBg: 'bg-purple-900/50', iconBorder: 'border-purple-400/30', text: 'text-purple-400', muted: 'text-purple-300' },
-              { bg: 'bg-rose-600/20',   border: 'border-rose-500/50',   iconBg: 'bg-rose-900/50',   iconBorder: 'border-rose-400/30',   text: 'text-rose-400',   muted: 'text-rose-300' },
               { bg: 'bg-amber-600/20',  border: 'border-amber-500/50',  iconBg: 'bg-amber-900/50',  iconBorder: 'border-amber-400/30',  text: 'text-amber-400',  muted: 'text-amber-300' },
             ];
-            const c = colors[idx] ?? colors[0];
+            const c = colors[i] ?? colors[0];
+            const isMe = p.id === myId;
+            const name = isMe ? `P${idx+1} • YOU` : `P${idx+1} • P-${p.id.substring(0,4).toUpperCase()}`;
             return (
-              <div key={p.id} className="relative group">
-                <div className={`absolute inset-0 ${c.bg} blur-xl rounded-2xl`}></div>
-                <div className={`relative bg-black/60 border ${c.border} rounded-2xl p-4 flex items-center gap-4`}>
-                  <div className={`w-14 h-14 ${c.iconBg} rounded-xl border ${c.iconBorder} flex items-center justify-center overflow-hidden shrink-0`}>
-                    {p.characterId === 'pinedo' ? (
-                      <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : p.characterId === 'mirage' ? (
-                      <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : p.characterId === 'coco' ? (
-                      <img src="/Coco/CocoIcon.png" alt="Coco" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : p.characterId === 'zobo' ? (
-                      <img src="/Zobo/ZoboIcon.png" alt="Zobo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : p.characterId === 'orbo' ? (
-                      <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : p.characterId === 'phantasma' ? (
-                      <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : p.characterId === 'chester' ? (
-                      <img src="/Chester/ChesterIcon.png" alt="Chester" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : p.characterId === 'wisp' ? (
-                      <img src="/Wisp/WispMPIcon.png" alt="Wisp" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : (
-                      <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
-                    )}
+              <div key={p.id} className="relative">
+                <div className={`absolute inset-0 ${c.bg} blur-xl rounded-xl`}></div>
+                <div className={`relative bg-black/60 border ${c.border} rounded-xl p-2 flex items-center gap-2`}>
+                  <div className={`w-10 h-10 ${c.iconBg} rounded-lg border ${c.iconBorder} flex items-center justify-center overflow-hidden shrink-0`}>
+                    {p.characterId === 'pinedo' ? <img src="/Pinedo/PinedoIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'mirage' ? <img src="/Mirage/MirageIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'coco'   ? <img src="/Coco/CocoIcon.png"    alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'zobo'   ? <img src="/Zobo/ZoboIcon.png"    alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'orbo'   ? <img src="/Orbo/OrboIdle.png"    alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'phantasma' ? <img src="/Phantasma/PhantasmaIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'chester' ? <img src="/Chester/ChesterIcon.png" alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : p.characterId === 'wisp'   ? <img src="/Wisp/WispMPIcon.png"  alt="" className="w-8 h-8 object-contain" style={{imageRendering:'pixelated'}} />
+                    : <div className="w-7 h-7 rounded" style={{backgroundColor: p.color}}></div>}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-end mb-1">
-                      <div className="flex flex-col">
-                        <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>{name}</span>
-                        <span className="text-xs font-bold uppercase tracking-tighter text-white truncate">
-                          {ROSTER.find(r => r.id === p.characterId)?.name || 'Unknown'}
-                        </span>
-                      </div>
-                      <span className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Kills: {p.score}</span>
+                    <div className="flex justify-between items-baseline">
+                      <span className={`text-[8px] uppercase tracking-widest ${c.muted} truncate`}>{name}</span>
+                      <span className={`text-[8px] ${c.muted}`}>{p.score}K</span>
                     </div>
+                    <span className="text-xs font-bold uppercase tracking-tighter text-white truncate block">{ROSTER.find(r => r.id === p.characterId)?.name || '?'}</span>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-black italic tracking-tighter text-white">{p.health}</span>
-                      <span className={`text-lg font-bold ${c.text}`}>HP</span>
+                      <span className="text-xl font-black italic tracking-tighter text-white">{p.health}</span>
+                      <span className={`text-xs font-bold ${c.text}`}>HP</span>
                     </div>
                   </div>
                 </div>
@@ -3262,8 +3302,9 @@ export default function GameCanvas() {
             );
           })}
         </div>
-        {/* Mobile: compact HP strip */}
-        <div className="flex sm:hidden gap-1 px-2 pb-1">
+
+        {/* Mobile: compact HP strip overlaid at bottom of canvas */}
+        <div className="flex sm:hidden absolute bottom-0 left-0 right-0 gap-1 px-2 pb-1 z-20 bg-gradient-to-t from-black/80">
           {playersList.slice(0, 4).map((p, idx) => {
             const barColors = ['bg-indigo-500','bg-purple-500','bg-rose-500','bg-amber-500'];
             const isMe = p.id === myId;
@@ -3283,7 +3324,8 @@ export default function GameCanvas() {
             );
           })}
         </div>
-      </footer>
+
+      </main>
 
       {/* Mobile Controls */}
       {isMobile && (
