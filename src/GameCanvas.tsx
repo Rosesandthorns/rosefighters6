@@ -1,6 +1,7 @@
 import rivalThemeUrl from './assets/rival_theme.mp3';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import WispMoveCanvas from './WispMoveCanvas';
 
 interface Player {
   id: string;
@@ -3098,52 +3099,57 @@ export default function GameCanvas() {
               {/* Wisp DOM sprite overlay */}
               {playersList.filter(p => p.characterId === 'wisp').map(p => {
                 const state = p.wispState || 'idle';
-                const src =
-                  state === 'move'     ? '/Wisp/WispMove.gif'     :
-                  state === 'attack1'  ? '/Wisp/WispAttack1.gif'  :
-                  state === 'attack23' ? '/Wisp/WispAttack23.gif' :
-                                         '/Wisp/MPWispIdle.gif';
+                const isMoving = state === 'move';
 
                 // Hitbox: width=14, height=81 (sprite coords 57,120 to 71,39)
-                // Scale sprite to draw size — use same drawH pattern as other characters
-                // Sprite image dims map hitbox at 57-71 x (120-39) in original coords
-                // Original sprite assumed 128px tall; scale so hitbox height = 81 game px
                 const spriteNativeH = 128;
-                const hitboxInSprite = { x: 57, y: 39, w: 14, h: 81 }; // (120-39=81)
-                const scale = 81 / hitboxInSprite.h; // scale so hitbox h = 81px in draw coords
+                const hitboxInSprite = { x: 57, y: 39, w: 14, h: 81 };
+                const scale = 81 / hitboxInSprite.h;
                 const drawH = Math.round(spriteNativeH * scale);
-                const drawW = drawH; // assume square sprite sheet
+                const drawW = drawH;
 
-                // Align: sprite hitbox bottom = player collision box bottom
-                //        sprite hitbox center-x = player collision box center-x
                 const playerCenterX = p.x + p.width / 2;
                 const playerBottom = p.y + p.height;
-
-                const hitboxDrawH = hitboxInSprite.h * scale; // = 81
                 const hitboxDrawY = hitboxInSprite.y * scale;
                 const hitboxDrawX = hitboxInSprite.x * scale;
                 const hitboxDrawW = hitboxInSprite.w * scale;
 
                 const left = playerCenterX - (hitboxDrawX + hitboxDrawW / 2);
-                const top  = playerBottom - hitboxDrawY - hitboxDrawH;
+                const top  = playerBottom - hitboxDrawY - hitboxInSprite.h;
+
+                const commonStyle: React.CSSProperties = {
+                  position: 'absolute',
+                  left,
+                  top,
+                  width: drawW,
+                  height: drawH,
+                  imageRendering: 'pixelated',
+                  transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
+                  transformOrigin: 'center center',
+                  filter: p.isInvincible ? 'drop-shadow(0 0 8px #facc15)' : 'none',
+                };
+
+                if (isMoving) {
+                  return (
+                    <WispMoveCanvas
+                      key={p.id + '-wisp-sprite'}
+                      playing={true}
+                      style={commonStyle}
+                    />
+                  );
+                }
+
+                const src =
+                  state === 'attack1'  ? '/Wisp/WispAttack1.gif'  :
+                  state === 'attack23' ? '/Wisp/WispAttack23.gif' :
+                                         '/Wisp/MPWispIdle.gif';
 
                 return (
                   <img
                     key={p.id + '-wisp-sprite'}
                     src={src}
                     alt=""
-                    style={{
-                      position: 'absolute',
-                      left,
-                      top,
-                      width: drawW,
-                      height: drawH,
-                      imageRendering: 'pixelated',
-                      // Sprites face LEFT by default — flip for right-facing
-                      transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
-                      transformOrigin: 'center center',
-                      filter: p.isInvincible ? 'drop-shadow(0 0 8px #facc15)' : 'none',
-                    }}
+                    style={commonStyle}
                   />
                 );
               })}
