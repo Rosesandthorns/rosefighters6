@@ -1800,9 +1800,13 @@ export default function GameCanvas() {
         });
     };
 
+    const VIEWPORT_OFFSET_Y = 51; // crop: top of viewport in world coords
     const render = () => {
       // Clear canvas for void aesthetic
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Shift world so y=51 maps to canvas y=0
+      ctx.save();
+      ctx.translate(0, -VIEWPORT_OFFSET_Y);
 
       // Draw platforms
       PLATFORMS.forEach(plat => {
@@ -2368,6 +2372,7 @@ export default function GameCanvas() {
       } else if (se && Date.now() >= se.expiresAt) {
           screenEffectRef.current = null;
       }
+      ctx.restore(); // undo viewport translate
     };
 
     animationFrameId = requestAnimationFrame(gameLoop);
@@ -2708,8 +2713,8 @@ export default function GameCanvas() {
         className="relative bg-[#050508] text-white font-sans flex flex-col"
         style={{
           width: 1024,
-          height: 600,
-          transform: isMobile ? undefined : `scale(${Math.min(window.innerWidth / 1024, window.innerHeight / 600)})`,
+          height: 449,
+          transform: isMobile ? undefined : `scale(${Math.min(window.innerWidth / 1024, window.innerHeight / 449)})`,
           transformOrigin: 'center center',
           flexShrink: 0,
         }}
@@ -2750,13 +2755,13 @@ export default function GameCanvas() {
             <canvas
               ref={canvasRef}
               width={1024}
-              height={600}
-              className="block w-full h-auto sm:w-[1024px] sm:h-[600px]"
+              height={449}
+              className="block w-full h-auto sm:w-[1024px] sm:h-[449px]"
               style={{ imageRendering: 'pixelated' }}
               onContextMenu={(e) => e.preventDefault()}
             />
             {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
-            <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600 }}>
+            <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600, top: -51 }}>
               {/* Spinning head projectiles */}
               {pinedoProjectiles.map(proj => (
                 <img
