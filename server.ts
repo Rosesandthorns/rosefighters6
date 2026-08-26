@@ -94,6 +94,8 @@ interface Player {
   zoboRegatherHit?: boolean;
   // Orbo sprite state
   orboState?: 'idle' | 'move' | 'idleDeflect' | 'moveDeflect' | 'attack2' | 'attack2Deflect' | 'attack3';
+  // Wisp sprite state
+  wispState?: 'idle' | 'move' | 'attack1' | 'attack23';
   // Phantasma state
   phantasmaForm?: 'tv' | 'ghost';
   phantasmaState?: 'idle' | 'attack1' | 'attack2' | 'attack3' | 'movestart' | 'movemid' | 'dash';
@@ -593,6 +595,7 @@ function charWidth(id: string | null | undefined, form?: string): number {
   if (id === 'zobo') return 6;
   if (id === 'phantasma') return form === 'ghost' ? 16 : 45; // Ghost: 93 - 77 = 16, TV: 86 - 41 = 45
   if (id === 'chester') return 56; // 76 - 20 = 56
+  if (id === 'wisp') return 14;   // 71 - 57 = 14
   return 50;
 }
 
@@ -604,6 +607,7 @@ function charHeight(id: string | null | undefined, form?: string): number {
   if (id === 'zobo') return 70;
   if (id === 'phantasma') return form === 'ghost' ? 109 : 89; // Ghost: 124 - 15 = 109, TV: 109 - 20 = 89
   if (id === 'chester') return 34; // 123 - 89 = 34
+  if (id === 'wisp') return 81;   // 120 - 39 = 81
   return 50;
 }
 
@@ -2509,25 +2513,69 @@ io.on('connection', (socket) => {
           }
       } else if (player.characterId === 'wisp') {
           if (data.ability === 1) {
-              const id = 'proj_' + entityIdCounter++;
-              projectiles[id] = {
-                  id, type: 'fireball',
-                  x: player.x + (player.facing === 'right' ? player.width : -20),
-                  y: player.y + player.height / 2,
-                  vx: player.facing === 'right' ? 8 : -8,
-                  vy: 0,
-                  ownerId: player.id,
-                  damage: 15,
-                  life: 150
-              };
+              // Attack 1: play animation, spawn wisp projectiles halfway through (~500ms)
+              player.wispState = 'attack1';
+              io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'wispState', state: 'attack1' });
+              // Lock movement during animation
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: Math.ceil(1000 / 33) });
+              // Spawn wisp projectiles at halfway point (~500ms)
+              const castFacing = player.facing;
+              const castX = player.x + player.width / 2;
+              const castY = player.y + player.height / 2;
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  // Spawn 3 wisp orbs in a spread fan
+                  const angles = [0, -0.35, 0.35];
+                  angles.forEach(angle => {
+                      const pid = 'proj_' + entityIdCounter++;
+                      const baseVx = castFacing === 'right' ? 9 : -9;
+                      const baseVy = 0;
+                      const cos = Math.cos(angle), sin = Math.sin(angle);
+                      projectiles[pid] = {
+                          id: pid, type: 'fireball',
+                          x: castX,
+                          y: castY,
+                          vx: baseVx * cos - baseVy * sin,
+                          vy: baseVx * sin + baseVy * cos,
+                          ownerId: player.id,
+                          damage: 12,
+                          life: 120
+                      };
+                  });
+              }, 500);
+              // Clear attack state after animation (~1000ms)
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].wispState = 'idle';
+                  io.to(player.id).emit('clearStun');
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'wispState', state: 'idle' });
+              }, 1000);
           } else if (data.ability === 2) {
+              // Attack 2: place fire wall, play attack23 animation
+              player.wispState = 'attack23';
+              io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'wispState', state: 'attack23' });
               const id = 'wall_' + entityIdCounter++;
-              walls[id] = { 
-                  id, x: player.x + (player.facing === 'right' ? 60 : -60), y: player.y - 30, 
-                  width: 20, height: 80, expires: Date.now() + 5000, type: 'fire', ownerId: player.id 
+              walls[id] = {
+                  id, x: player.x + (player.facing === 'right' ? 60 : -80), y: player.y - 30,
+                  width: 20, height: 80, expires: Date.now() + 5000, type: 'fire', ownerId: player.id
               };
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].wispState = 'idle';
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'wispState', state: 'idle' });
+              }, 600);
           } else if (data.ability === 3) {
-              if (!player.isGrounded) return;
+              // Attack 3: swap position with farthest player, play attack23 animation
+              player.wispState = 'attack23';
+              io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'wispState', state: 'attack23' });
+              if (!player.isGrounded) {
+                  setTimeout(() => {
+                      if (!players[player.id]) return;
+                      players[player.id].wispState = 'idle';
+                      io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'wispState', state: 'idle' });
+                  }, 600);
+                  return;
+              }
               let farthest = null;
               let maxDist = -1;
               for (const other of Object.values(players)) {
@@ -2539,26 +2587,31 @@ io.on('connection', (socket) => {
                   const tempX = player.x, tempY = player.y;
                   player.x = farthest.x; player.y = farthest.y;
                   farthest.x = tempX; farthest.y = tempY;
-                  
+
                   // Ensure positions are valid (not below ground)
                   const groundLevel = 450;
                   if (player.y > groundLevel) player.y = groundLevel - player.height;
                   if (farthest.y > groundLevel) farthest.y = groundLevel - farthest.height;
-                  
+
                   // Reset velocity to prevent falling through
                   player.velocity = { x: 0, y: 0 };
                   farthest.velocity = { x: 0, y: 0 };
                   player.isGrounded = true;
                   farthest.isGrounded = true;
-                  
+
                   io.emit('forcePosition', { id: player.id, x: player.x, y: player.y });
                   io.emit('forcePosition', { id: farthest.id, x: farthest.x, y: farthest.y });
-                  
+
                   const id1 = 'wall_' + entityIdCounter++;
                   walls[id1] = { id: id1, x: farthest.x - 40, y: farthest.y - 30, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
                   const id2 = 'wall_' + entityIdCounter++;
                   walls[id2] = { id: id2, x: farthest.x + farthest.width + 20, y: farthest.y - 30, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
               }
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].wispState = 'idle';
+                  io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'wispState', state: 'idle' });
+              }, 600);
           }
       } else if (player.characterId === 'cole') {
           if (data.ability === 1) {

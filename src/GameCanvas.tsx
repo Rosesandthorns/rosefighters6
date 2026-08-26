@@ -41,6 +41,7 @@ interface Player {
   zoboState?: 'idle' | 'walk' | 'attack1start' | 'attack1mid' | 'attack1return' | 'attack2' | 'attack3';
   zoboArm1Active?: boolean;
   orboState?: 'idle' | 'move' | 'idleDeflect' | 'moveDeflect' | 'attack2' | 'attack2Deflect' | 'attack3';
+  wispState?: 'idle' | 'move' | 'attack1' | 'attack23';
   chaosMode?: boolean;
   isEliminated?: boolean;
   currentRosterIndex?: number;
@@ -226,6 +227,7 @@ export default function GameCanvas() {
   const orboImgs = useRef<Record<string, HTMLImageElement>>({});
   const zoboImgs = useRef<Record<string, HTMLImageElement>>({});
   const chesterImgs = useRef<Record<string, HTMLImageElement>>({});
+  const wispImgs = useRef<Record<string, HTMLImageElement>>({});
   // Zobo arm tether state: server emits per-frame position
   const zoboArmRef = useRef<Record<string, { x1: number; y1: number; x2: number; y2: number; active: boolean }>>({});
 
@@ -306,6 +308,17 @@ export default function GameCanvas() {
     Object.entries(chesterAssets).forEach(([key, src]) => {
       const img = new Image(); img.src = src;
       chesterImgs.current[key] = img;
+    });
+    const wispAssets: Record<string, string> = {
+      idle:    '/Wisp/MPWispIdle.gif',
+      move:    '/Wisp/WispMove.gif',
+      attack1: '/Wisp/WispAttack1.gif',
+      attack23:'/Wisp/WispAttack23.gif',
+      icon:    '/Wisp/WispMPIcon.png',
+    };
+    Object.entries(wispAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
+      wispImgs.current[key] = img;
     });
   }, []);
 
@@ -490,8 +503,8 @@ export default function GameCanvas() {
           player.health = char.hp;
           // Character-specific dimensions
           const cid = data.newCharacterId;
-          player.width = cid === 'wax' ? 100 : cid === 'mirage' ? 12 : cid === 'coco' ? 50 : cid === 'orbo' ? 17 : cid === 'zobo' ? 6 : cid === 'phantasma' ? 45 : cid === 'chester' ? 56 : 50;
-          player.height = cid === 'wax' ? 120 : cid === 'mirage' ? 40 : cid === 'coco' ? 80 : cid === 'orbo' ? 44 : cid === 'zobo' ? 70 : cid === 'phantasma' ? 89 : cid === 'chester' ? 34 : 50;
+          player.width = cid === 'wax' ? 100 : cid === 'mirage' ? 12 : cid === 'coco' ? 50 : cid === 'orbo' ? 17 : cid === 'zobo' ? 6 : cid === 'phantasma' ? 45 : cid === 'chester' ? 56 : cid === 'wisp' ? 14 : 50;
+          player.height = cid === 'wax' ? 120 : cid === 'mirage' ? 40 : cid === 'coco' ? 80 : cid === 'orbo' ? 44 : cid === 'zobo' ? 70 : cid === 'phantasma' ? 89 : cid === 'chester' ? 34 : cid === 'wisp' ? 81 : 50;
           // Reset Phantasma form on character change
           player.phantasmaForm = 'tv';
           player.phantasmaState = 'idle';
@@ -719,6 +732,9 @@ export default function GameCanvas() {
         if (data.effect === 'healCancel' && p.characterId === 'chester') {
             if (p.activeEffects) p.activeEffects['chesterAtk3Active'] = 0;
             p.chesterState = 'idle';
+        }
+        if (data.effect === 'wispState' && (data as any).state) {
+            p.wispState = (data as any).state;
         }
         if (data.effect === 'mirageState' && (data as any).state) {
             p.mirageState = (data as any).state;
@@ -1135,7 +1151,7 @@ export default function GameCanvas() {
                       if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
                       if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
                   } else {
-                      const dashSpeed = isPhantomDashActive ? currentSpeed * 3.0 : (isColeRollActive ? MOVE_SPEED * 2 : (isChesterDashActive ? MOVE_SPEED * 2.5 : currentSpeed * 2.5));
+                      const dashSpeed = isPhantomDashActive ? currentSpeed * 3.0 : (isColeRollActive ? MOVE_SPEED * 2 : (isChesterDashActive ? MOVE_SPEED * 1.2 : currentSpeed * 2.5));
                       moveTarget = myPlayer.facing === 'right' ? dashSpeed : -dashSpeed;
                       
                       if (!isPhantomDashActive) {
@@ -1241,6 +1257,13 @@ export default function GameCanvas() {
                   myPlayer.orboState = moveTarget !== 0 ? 'moveDeflect' : 'idleDeflect';
                 } else {
                   myPlayer.orboState = moveTarget !== 0 ? 'move' : 'idle';
+                }
+              }
+              // Update Wisp movement state
+              if (myPlayer.characterId === 'wisp') {
+                const wispAttacks = ['attack1', 'attack23'];
+                if (!wispAttacks.includes(myPlayer.wispState || '')) {
+                  myPlayer.wispState = moveTarget !== 0 ? 'move' : 'idle';
                 }
               }
 
@@ -1466,11 +1489,12 @@ export default function GameCanvas() {
       // Special active hitboxes (Rica Run / Chester Dash / Phantom Dash)
       const isColeRoll = myPlayer.activeEffects?.['coleRoll'] && myPlayer.activeEffects['coleRoll'] > Date.now();
       const isPhantomDash = myPlayer.activeEffects?.['phantomDash'] && myPlayer.activeEffects['phantomDash'] > Date.now();
+      const isChesterDash = myPlayer.characterId === 'chester' && myPlayer.activeEffects?.['chesterAtk1Dash'] && myPlayer.activeEffects['chesterAtk1Dash'] > Date.now();
       if ((myPlayer.activeEffects?.['ricaRun'] && myPlayer.activeEffects['ricaRun'] > Date.now()) || 
-          (myPlayer.activeEffects?.['toothDash'] && myPlayer.activeEffects['toothDash'] > Date.now()) || isColeRoll || isPhantomDash) {
+          (myPlayer.activeEffects?.['toothDash'] && myPlayer.activeEffects['toothDash'] > Date.now()) || isColeRoll || isPhantomDash || isChesterDash) {
           
-          const isRica = myPlayer.activeEffects?.['ricaRun'] > Date.now();
-          const damage = isPhantomDash ? 0 : (isColeRoll ? 0 : (isRica ? 30 : 10));
+          const isRica = myPlayer.activeEffects?.['ricaRun'] && myPlayer.activeEffects['ricaRun'] > Date.now();
+          const damage = isPhantomDash ? 0 : (isColeRoll ? 0 : (isChesterDash ? 20 : (isRica ? 30 : 10)));
           
           Object.values(playersRef.current).forEach((target: Player) => {
               if (target.id === myId) return;
@@ -1493,6 +1517,15 @@ export default function GameCanvas() {
                           vx: 0,
                           vy: 0,
                           stunFrames: 10
+                      });
+                  } else if (isChesterDash) {
+                      const dirX = myPlayer.facing === 'right' ? 1 : -1;
+                      socket.emit('playerHit', { targetId: target.id, damage });
+                      socket.emit('playerKnockback', {
+                          targetId: target.id,
+                          vx: dirX * 14,
+                          vy: -8,
+                          stunFrames: 20
                       });
                   } else {
                       socket.emit('playerHit', { targetId: target.id, damage });
@@ -2097,8 +2130,8 @@ export default function GameCanvas() {
             ctx.restore();
         }
 
-        // ── Pinedo/Mirage/Coco/Orbo/Zobo/Phantasma/Chester: hidden from canvas — rendered as DOM overlay beneath ──────
-        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo' || player.characterId === 'phantasma' || player.characterId === 'chester') {
+        // ── Pinedo/Mirage/Coco/Orbo/Zobo/Phantasma/Chester/Wisp: hidden from canvas — rendered as DOM overlay beneath ──────
+        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo' || player.characterId === 'phantasma' || player.characterId === 'chester' || player.characterId === 'wisp') {
             hideStandardBody = true;
         }
 
@@ -2576,6 +2609,8 @@ export default function GameCanvas() {
                       <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : char.id === 'chester' ? (
                       <img src="/Chester/ChesterIcon.png" alt="Chester" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : char.id === 'wisp' ? (
+                      <img src="/Wisp/WispMPIcon.png" alt="Wisp" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
                     )}
@@ -3037,6 +3072,58 @@ export default function GameCanvas() {
                   />
                 );
               })}
+              {/* Wisp DOM sprite overlay */}
+              {playersList.filter(p => p.characterId === 'wisp').map(p => {
+                const state = p.wispState || 'idle';
+                const src =
+                  state === 'move'     ? '/Wisp/WispMove.gif'     :
+                  state === 'attack1'  ? '/Wisp/WispAttack1.gif'  :
+                  state === 'attack23' ? '/Wisp/WispAttack23.gif' :
+                                         '/Wisp/MPWispIdle.gif';
+
+                // Hitbox: width=14, height=81 (sprite coords 57,120 to 71,39)
+                // Scale sprite to draw size — use same drawH pattern as other characters
+                // Sprite image dims map hitbox at 57-71 x (120-39) in original coords
+                // Original sprite assumed 128px tall; scale so hitbox height = 81 game px
+                const spriteNativeH = 128;
+                const hitboxInSprite = { x: 57, y: 39, w: 14, h: 81 }; // (120-39=81)
+                const scale = 81 / hitboxInSprite.h; // scale so hitbox h = 81px in draw coords
+                const drawH = Math.round(spriteNativeH * scale);
+                const drawW = drawH; // assume square sprite sheet
+
+                // Align: sprite hitbox bottom = player collision box bottom
+                //        sprite hitbox center-x = player collision box center-x
+                const playerCenterX = p.x + p.width / 2;
+                const playerBottom = p.y + p.height;
+
+                const hitboxDrawH = hitboxInSprite.h * scale; // = 81
+                const hitboxDrawY = hitboxInSprite.y * scale;
+                const hitboxDrawX = hitboxInSprite.x * scale;
+                const hitboxDrawW = hitboxInSprite.w * scale;
+
+                const left = playerCenterX - (hitboxDrawX + hitboxDrawW / 2);
+                const top  = playerBottom - hitboxDrawY - hitboxDrawH;
+
+                return (
+                  <img
+                    key={p.id + '-wisp-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width: drawW,
+                      height: drawH,
+                      imageRendering: 'pixelated',
+                      // Sprites face LEFT by default — flip for right-facing
+                      transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
+                      transformOrigin: 'center center',
+                      filter: p.isInvincible ? 'drop-shadow(0 0 8px #facc15)' : 'none',
+                    }}
+                  />
+                );
+              })}
               {/* OldTV objects left behind by Phantasma */}
               {playersList.filter(p => p.phantasmaOldTvs).flatMap(p =>
                 Object.values(p.phantasmaOldTvs || {}).map((tv: any) => {
@@ -3109,6 +3196,8 @@ export default function GameCanvas() {
                       <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : p.characterId === 'chester' ? (
                       <img src="/Chester/ChesterIcon.png" alt="Chester" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : p.characterId === 'wisp' ? (
+                      <img src="/Wisp/WispMPIcon.png" alt="Wisp" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
                     )}
