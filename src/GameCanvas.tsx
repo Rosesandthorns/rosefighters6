@@ -154,25 +154,25 @@ interface RosterCharacter {
 }
 
 const ROSTER: RosterCharacter[] = [
-  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park', catchphrase: "It's all in the cards", abilities: ["Card Throw", "Card Wall", "Teleport Dash"] },
-  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park', catchphrase: "The Future May Guide Us", abilities: ["Deflect Dash", "Chrono Zone", "Safety Warp"] },
-  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park', catchphrase: "Anything I can't fix, I will destroy.", abilities: ["Mecha Grab", "Charge Dash", "Drone Deploy"] },
-  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park', catchphrase: "All will be mine! Mine! MINE!", abilities: ["Coin Dash", "Deflect Stance", "Greed Heal"] },
-  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park', catchphrase: "Heads up..! ... Or.. Off...", abilities: ["Coin Slash", "Boomerang Throw", "Coin Storm"] },
-  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park', catchphrase: "The Head Chef, hehehe", abilities: ["Plate Throw", "Extended Grab", "Super Jump"] },
-  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park', catchphrase: "⊵Ⲟ╾➹⺀⑽ⷝⴜ⋪⊄Ⱓ⻃③", abilities: ["Spirit Orbs", "Fire Wall", "Position Swap"] },
-  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park', catchphrase: "I may not be home, But I will fight to return.", abilities: ["Stone Roll", "Teleport Above", "Ground Crush"] },
-  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park', catchphrase: "May The Forest Show You Mercy, For I Will Not.", abilities: ["Thorn Shot", "Bramble Wall", "Vine Teleport"] },
-  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park', catchphrase: "I dont want to fight you, but I am not a pushover.", abilities: ["Chocolate Scatter", "Cocoa Fountain", "Coco Rage"] },
-  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park', catchphrase: "Alone, desperate, has strength, strength is us.", abilities: ["Spider Arm", "Web Lob", "Regather"] },
-  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park', catchphrase: "The Static Isn't just in your head!", abilities: ["Static Discharge", "Electric Jolt", "Ghost Transform"] },
-  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Fistula", abilities: ["Blood Cloud", "Execute", "Needle Stab"] },
-  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Target aquired, Probability of Survival: Decreasing", abilities: ["Static Charge", "Chrono Shuffle", "Laser Beam"] },
-  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence', catchphrase: "After all, I, the master tinkerer, wont even need to lay a finger on you.", abilities: ["Drone Swarm A", "Drone Swarm B", "Drone Swarm C"] },
-  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence', catchphrase: "A darkness is not only along the horizon.", abilities: ["Lantern Toss", "Blind", "Book Barrage"] },
-  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence', catchphrase: "Void Reigns Supreme through this blessed ink, may all worlds exist forever through my divinity.", abilities: ["Dart Volley", "Book Rain", "Ink Wave"] },
-  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "War is not a joke, death is but guranteed.", abilities: ["Rifle Shot", "Explosive Bomb", "Tactical Roll"] },
-  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "Pink looks good on you, so does red!", abilities: ["Paint Lob", "Paint Trap", "Paint Burst"] }
+  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park', catchphrase: "It's all in the cards", abilities: ["Card Throw - Ranged Projectile", "Card Wall - Vertical Barrier", "Teleport Dash - Positioning Teleport"] },
+  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park', catchphrase: "The Future May Guide Us", abilities: ["Deflect Dash - Deflect & Dash", "Chrono Zone - Large Delayed AOE Damage", "Safety Warp - Teleport Dash"] },
+  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park', catchphrase: "Anything I can't fix, I will destroy.", abilities: ["Mecha Grab - Melee Grab", "Charge Dash - Mobility Attack", "Drone Deploy - Summon Support"] },
+  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park', catchphrase: "All will be mine! Mine! MINE!", abilities: ["Coin Dash - Mobility Attack", "Deflect Stance - Defensive Counter", "Greed Heal - Self Heal"] },
+  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park', catchphrase: "Heads up..! ... Or.. Off...", abilities: ["Head Smash - Melee Attack", "Head Toss - Ranged Boomerang Attack", "Head Combo - Combo Attack"] },
+  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park', catchphrase: "The Head Chef, hehehe", abilities: ["Plate Throw - Ranged Projectile", "Extended Grab - Melee Grab", "Super Jump - Mobility & I-frames"] },
+  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park', catchphrase: "⊵Ⲟ╾➹⺀⑽ⷝⴜ⋪⊄Ⱓ⻃③", abilities: ["Spirit Orbs - Spread Projectile", "Fire Wall - Vertical Barrier", "Position Swap - Teleport & Walls"] },
+  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park', catchphrase: "I may not be home, But I will fight to return.", abilities: ["Stone Roll - Mobility", "Teleport Above - Positioning", "Ground Crush - Melee Finisher"] },
+  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park', catchphrase: "May The Forest Show You Mercy, For I Will Not.", abilities: ["Thorn Shot - Ranged Projectile", "Bramble Wall - Ground Hazard", "Vine Teleport - Displacement"] },
+  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park', catchphrase: "I dont want to fight you, but I am not a pushover.", abilities: ["Chocolate Scatter - Multi Projectile", "Cocoa Fountain - Rising Wall", "Coco Rage - Speed Boost AOE"] },
+  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park', catchphrase: "Alone, desperate, has strength, strength is us.", abilities: ["Spider Arm - Extendable Grab", "Web Lob - Ranged Projectile", "Regather - Heal on Complete"] },
+  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park', catchphrase: "The Static Isn't just in your head!", abilities: ["Static Discharge - Ranged Projectile", "Electric Jolt - Vertical Beam", "Ghost Transform - Form Change"] },
+  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Fistula", abilities: ["Blood Cloud - Zone Damage", "Execute - Low HP Finisher", "Needle Stab - Melee Attack"] },
+  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Target aquired, Probability of Survival: Decreasing", abilities: ["Static Charge - Scaling Melee", "Chrono Shuffle - Global Teleport", "Laser Beam - Long Range Beam"] },
+  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence', catchphrase: "After all, I, the master tinkerer, wont even need to lay a finger on you.", abilities: ["Drone Swarm A - Small Drone Swarm", "Drone Swarm B - Medium Drone Swarm", "Drone Swarm C - Large Drone Swarm"] },
+  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence', catchphrase: "A darkness is not only along the horizon.", abilities: ["Lantern Toss - Ranged Projectile", "Blind - Global Debuff", "Book Barrage - Tracking Projectiles"] },
+  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence', catchphrase: "Void Reigns Supreme through this blessed ink, may all worlds exist forever through my divinity.", abilities: ["Dart Volley - Multi Projectile", "Book Rain - AOE Projectile", "Ink Wave - Horizontal Wave"] },
+  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "War is not a joke, death is but guranteed.", abilities: ["Rifle Shot - Ranged Projectile", "Explosive Bomb - Place & Detonate", "Tactical Roll - Mobility & I-frames"] },
+  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "Pink looks good on you, so does red!", abilities: ["Paint Lob - Ranged Projectile", "Paint Trap - Ground Hazard", "Paint Burst - 360° Spread"] }
 ];
 
 const GRAVITY = 1.2;
@@ -2674,12 +2674,18 @@ export default function GameCanvas() {
               </div>
               <div className="space-y-2">
                 <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Abilities</h4>
-                {hoveredChar.abilities?.map((ability, index) => (
-                  <div key={index} className="flex items-start gap-2">
-                    <span className="text-indigo-400 font-bold min-w-[20px]">{index + 1}.</span>
-                    <span className="text-gray-300 text-sm">{ability}</span>
-                  </div>
-                ))}
+                {hoveredChar.abilities?.map((ability, index) => {
+                  const [name, description] = ability.split(' - ');
+                  return (
+                    <div key={index} className="flex items-start gap-2">
+                      <span className="text-indigo-400 font-bold min-w-[20px]">{index + 1}.</span>
+                      <div className="flex flex-col">
+                        <span className="text-white font-semibold text-sm">{name}</span>
+                        <span className="text-gray-400 text-xs">{description}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
