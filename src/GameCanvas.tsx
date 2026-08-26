@@ -3134,6 +3134,7 @@ export default function GameCanvas() {
                     <WispMoveCanvas
                       key={p.id + '-wisp-sprite'}
                       playing={true}
+                      facingRight={p.facing === 'right'}
                       style={commonStyle}
                     />
                   );
