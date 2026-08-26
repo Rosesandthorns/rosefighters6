@@ -2603,9 +2603,9 @@ io.on('connection', (socket) => {
                   io.emit('forcePosition', { id: farthest.id, x: farthest.x, y: farthest.y });
 
                   const id1 = 'wall_' + entityIdCounter++;
-                  walls[id1] = { id: id1, x: farthest.x - 40, y: farthest.y + farthest.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
+                  walls[id1] = { id: id1, x: player.x - 40, y: player.y + player.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
                   const id2 = 'wall_' + entityIdCounter++;
-                  walls[id2] = { id: id2, x: farthest.x + farthest.width + 20, y: farthest.y + farthest.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
+                  walls[id2] = { id: id2, x: player.x + player.width + 20, y: player.y + player.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
               }
               setTimeout(() => {
                   if (!players[player.id]) return;

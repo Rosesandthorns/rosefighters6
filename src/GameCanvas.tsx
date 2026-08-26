@@ -2702,13 +2702,23 @@ export default function GameCanvas() {
 
   if (screen === 'game') {
     return (
-    <div className="w-full h-screen bg-[#050508] text-white font-sans overflow-hidden relative flex flex-col">
+    <div className="w-screen h-screen bg-[#050508] text-white font-sans overflow-hidden flex items-center justify-center">
+      {/* Scale wrapper: locks entire game UI to 1024×600 on desktop, full-width on mobile */}
+      <div
+        className="relative bg-[#050508] text-white font-sans flex flex-col"
+        style={{
+          width: 1024,
+          height: 600,
+          transform: isMobile ? undefined : `scale(${Math.min(window.innerWidth / 1024, window.innerHeight / 600)})`,
+          transformOrigin: 'center center',
+          flexShrink: 0,
+        }}
+      >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,_#1a1a2e_0%,_#050508_70%)] opacity-50 pointer-events-none"></div>
       <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#4f46e5 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
 
-      <header className="relative z-10 flex justify-between items-center px-4 sm:px-12 py-3 sm:py-8 shrink-0">
+      <header className="relative z-10 flex justify-between items-center px-4 sm:px-12 py-3 sm:py-4 shrink-0">
         <div className="flex flex-col">
-          <span className="hidden sm:block text-[10px] uppercase tracking-[0.3em] text-indigo-400 font-bold">Multiplayer Session</span>
           <h1 className="text-lg sm:text-2xl font-black tracking-tighter italic">ROSE FIGHTERS <span className="text-indigo-500">α</span></h1>
         </div>
         
@@ -3306,13 +3316,6 @@ export default function GameCanvas() {
         </div>
       )}
 
-      <div className="hidden sm:flex absolute bottom-4 left-1/2 -translate-x-1/2 items-center gap-4 bg-white/5 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 pointer-events-none z-20">
-        <span className="text-[9px] uppercase tracking-widest text-gray-400">Server Status:</span>
-        <span className={`text-[9px] font-bold uppercase tracking-widest ${myId ? 'text-green-400' : 'text-amber-400'}`}>
-          {myId ? 'Stable' : 'Connecting'}
-        </span>
-        <div className="w-[1px] h-3 bg-white/20"></div>
-        <span className="text-[9px] uppercase tracking-widest text-gray-400">Players: {playersList.length}</span>
       </div>
     </div>
     );
