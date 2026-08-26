@@ -241,16 +241,14 @@ function getLobbyByPlayerId(playerId: string): Lobby | null {
 
 // Helper function to broadcast available lobbies to all clients
 function broadcastAvailableLobbies() {
-  io.emit('availableLobbies', Object.values(lobbies)
-    .filter(lobby => !lobby.isPrivate)
-    .map(lobby => ({
-      id: lobby.id,
-      name: lobby.name,
-      isPrivate: lobby.isPrivate,
-      gameMode: lobby.gameMode,
-      playerCount: Object.keys(lobby.players).length,
-      gameState: lobby.gameState
-    })));
+  io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
+    id: lobby.id,
+    name: lobby.name,
+    isPrivate: lobby.isPrivate,
+    gameMode: lobby.gameMode,
+    playerCount: Object.keys(lobby.players).length,
+    gameState: lobby.gameState
+  })));
 }
 
 // Helper function to end a match in a lobby
@@ -1321,20 +1319,10 @@ io.on('connection', (socket) => {
   socket.on('joinLobby', (data: { lobbyId?: string, code?: string }) => {
     let targetLobby: Lobby | null = null;
     
-    if (data.code) {
-      // Code-based join — works for both public and private lobbies
-      targetLobby = Object.values(lobbies).find(lobby => lobby.code === data.code.toUpperCase()) || null;
-      if (!targetLobby) {
-        socket.emit('lobbyJoinError', { message: 'Invalid lobby code' });
-        return;
-      }
-    } else if (data.lobbyId) {
+    if (data.lobbyId) {
       targetLobby = lobbies[data.lobbyId];
-      // Block direct ID join for private lobbies — must use code
-      if (targetLobby?.isPrivate) {
-        socket.emit('lobbyJoinError', { message: 'This lobby is private. Enter the lobby code to join.' });
-        return;
-      }
+    } else if (data.code) {
+      targetLobby = Object.values(lobbies).find(lobby => lobby.code === data.code) || null;
     }
     
     if (!targetLobby) {
@@ -1762,14 +1750,8 @@ io.on('connection', (socket) => {
       const isGhostFloat = players[socket.id].characterId === 'phantasma' && players[socket.id].phantasmaForm === 'ghost';
       if (players[socket.id].y > 800 && !isGhostFloat) {
         handlePlayerDeath(players[socket.id], undefined, 'void');
-      } else {
-        // Hard horizontal boundary — clamp before broadcasting
-        const p = players[socket.id];
-        if (p.x < 0) { p.x = 0; p.velocity = p.velocity || { x: 0, y: 0 }; p.velocity.x = 0; }
-        else if (p.x + p.width > 1024) { p.x = 1024 - p.width; p.velocity = p.velocity || { x: 0, y: 0 }; p.velocity.x = 0; }
-        if (lobby) {
-          socket.to(lobby.id).emit('playerMoved', players[socket.id]);
-        }
+      } else if (lobby) {
+        socket.to(lobby.id).emit('playerMoved', players[socket.id]);
       }
     }
   });
@@ -2621,9 +2603,9 @@ io.on('connection', (socket) => {
                   io.emit('forcePosition', { id: farthest.id, x: farthest.x, y: farthest.y });
 
                   const id1 = 'wall_' + entityIdCounter++;
-                  walls[id1] = { id: id1, x: player.x - 40, y: player.y + player.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
+                  walls[id1] = { id: id1, x: farthest.x - 40, y: player.y + player.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
                   const id2 = 'wall_' + entityIdCounter++;
-                  walls[id2] = { id: id2, x: player.x + player.width + 20, y: player.y + player.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
+                  walls[id2] = { id: id2, x: farthest.x + farthest.width + 20, y: player.y + player.height - 80, width: 20, height: 80, expires: Date.now() + 3000, type: 'fire', ownerId: player.id };
               }
               setTimeout(() => {
                   if (!players[player.id]) return;
