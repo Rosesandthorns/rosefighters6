@@ -1800,19 +1800,9 @@ export default function GameCanvas() {
         });
     };
 
-    const WORLD_TOP = 51;    // world y shown at canvas top (20px above tallest char on top platform)
-    const WORLD_BOTTOM = 500; // world y shown at canvas bottom (main stage bottom + padding)
-    const WORLD_HEIGHT = WORLD_BOTTOM - WORLD_TOP; // 449
-    const VIEWPORT_SCALE = 600 / WORLD_HEIGHT;    // ~1.336 — zoom factor
-    const VIEWPORT_OFFSET_X = (1024 - 1024 * VIEWPORT_SCALE) / 2; // center horizontally
-
     const render = () => {
       // Clear canvas for void aesthetic
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // Zoom in: scale world so the play area fills the canvas
-      ctx.save();
-      ctx.translate(VIEWPORT_OFFSET_X, -WORLD_TOP * VIEWPORT_SCALE);
-      ctx.scale(VIEWPORT_SCALE, VIEWPORT_SCALE);
 
       // Draw platforms
       PLATFORMS.forEach(plat => {
@@ -2378,7 +2368,6 @@ export default function GameCanvas() {
       } else if (se && Date.now() >= se.expiresAt) {
           screenEffectRef.current = null;
       }
-      ctx.restore(); // undo viewport zoom/translate
     };
 
     animationFrameId = requestAnimationFrame(gameLoop);
@@ -2767,11 +2756,7 @@ export default function GameCanvas() {
               onContextMenu={(e) => e.preventDefault()}
             />
             {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
-            <div className="absolute inset-0 pointer-events-none" style={{
-              width: 1024, height: 600,
-              transformOrigin: 'top left',
-              transform: `translate(${(1024 - 1024 * (600 / 449)) / 2}px, ${-51 * (600 / 449)}px) scale(${600 / 449})`,
-            }}>
+            <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600 }}>
               {/* Spinning head projectiles */}
               {pinedoProjectiles.map(proj => (
                 <img
