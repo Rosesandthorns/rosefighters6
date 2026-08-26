@@ -1800,13 +1800,19 @@ export default function GameCanvas() {
         });
     };
 
-    const VIEWPORT_OFFSET_Y = 51; // crop: top of viewport in world coords
+    const WORLD_TOP = 51;    // world y shown at canvas top (20px above tallest char on top platform)
+    const WORLD_BOTTOM = 500; // world y shown at canvas bottom (main stage bottom + padding)
+    const WORLD_HEIGHT = WORLD_BOTTOM - WORLD_TOP; // 449
+    const VIEWPORT_SCALE = 600 / WORLD_HEIGHT;    // ~1.336 — zoom factor
+    const VIEWPORT_OFFSET_X = (1024 - 1024 * VIEWPORT_SCALE) / 2; // center horizontally
+
     const render = () => {
       // Clear canvas for void aesthetic
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // Shift world so y=51 maps to canvas y=0
+      // Zoom in: scale world so the play area fills the canvas
       ctx.save();
-      ctx.translate(0, -VIEWPORT_OFFSET_Y);
+      ctx.translate(VIEWPORT_OFFSET_X, -WORLD_TOP * VIEWPORT_SCALE);
+      ctx.scale(VIEWPORT_SCALE, VIEWPORT_SCALE);
 
       // Draw platforms
       PLATFORMS.forEach(plat => {
@@ -2372,7 +2378,7 @@ export default function GameCanvas() {
       } else if (se && Date.now() >= se.expiresAt) {
           screenEffectRef.current = null;
       }
-      ctx.restore(); // undo viewport translate
+      ctx.restore(); // undo viewport zoom/translate
     };
 
     animationFrameId = requestAnimationFrame(gameLoop);
@@ -2713,8 +2719,8 @@ export default function GameCanvas() {
         className="relative bg-[#050508] text-white font-sans flex flex-col"
         style={{
           width: 1024,
-          height: 449,
-          transform: isMobile ? undefined : `scale(${Math.min(window.innerWidth / 1024, window.innerHeight / 449)})`,
+          height: 600,
+          transform: isMobile ? undefined : `scale(${Math.min(window.innerWidth / 1024, window.innerHeight / 600)})`,
           transformOrigin: 'center center',
           flexShrink: 0,
         }}
@@ -2755,13 +2761,17 @@ export default function GameCanvas() {
             <canvas
               ref={canvasRef}
               width={1024}
-              height={449}
-              className="block w-full h-auto sm:w-[1024px] sm:h-[449px]"
+              height={600}
+              className="block w-full h-auto sm:w-[1024px] sm:h-[600px]"
               style={{ imageRendering: 'pixelated' }}
               onContextMenu={(e) => e.preventDefault()}
             />
             {/* Pinedo DOM sprite overlay — GIFs must be in DOM to animate */}
-            <div className="absolute inset-0 pointer-events-none" style={{ width: 1024, height: 600, top: -51 }}>
+            <div className="absolute inset-0 pointer-events-none" style={{
+              width: 1024, height: 600,
+              transformOrigin: 'top left',
+              transform: `translate(${(1024 - 1024 * (600 / 449)) / 2}px, ${-51 * (600 / 449)}px) scale(${600 / 449})`,
+            }}>
               {/* Spinning head projectiles */}
               {pinedoProjectiles.map(proj => (
                 <img
