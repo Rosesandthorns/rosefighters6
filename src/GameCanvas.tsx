@@ -482,7 +482,15 @@ export default function GameCanvas() {
       });
     });
 
+    // Correct hitbox dimensions from server data — ensures custom hitboxes always apply
+    const fixPlayerDimensions = (p: Player) => {
+      const cid = p.characterId;
+      p.width  = cid === 'wax' ? 100 : cid === 'mirage' ? 12 : cid === 'coco' ? 50 : cid === 'orbo' ? 17 : cid === 'zobo' ? 6 : cid === 'phantasma' ? 45 : cid === 'chester' ? 56 : cid === 'wisp' ? 14 : 50;
+      p.height = cid === 'wax' ? 120 : cid === 'mirage' ? 40 : cid === 'coco' ? 80 : cid === 'orbo' ? 44 : cid === 'zobo' ? 70 : cid === 'phantasma' ? 89 : cid === 'chester' ? 34 : cid === 'wisp' ? 81 : 50;
+    };
+
     newSocket.on('gameStart', (data: { players: Record<string, Player>, lobby: Lobby }) => {
+      Object.values(data.players).forEach(fixPlayerDimensions);
       playersRef.current = data.players;
       setPlayersList(Object.values(data.players));
       setCurrentLobby(data.lobby);
@@ -858,11 +866,13 @@ export default function GameCanvas() {
     });
 
     newSocket.on('currentPlayers', (serverPlayers: Record<string, Player>) => {
+      Object.values(serverPlayers).forEach(fixPlayerDimensions);
       playersRef.current = serverPlayers;
       setPlayersList(Object.values(serverPlayers));
     });
 
     newSocket.on('newPlayer', (player: Player) => {
+      fixPlayerDimensions(player);
       playersRef.current[player.id] = player;
       setPlayersList(Object.values(playersRef.current));
     });
@@ -904,6 +914,7 @@ export default function GameCanvas() {
 
     newSocket.on('playerRespawned', (player: Player) => {
        if (playersRef.current[player.id]) {
+         fixPlayerDimensions(player);
          playersRef.current[player.id] = player;
          // Reset Phantasma form to TV on respawn
          if (player.characterId === 'phantasma') {

@@ -241,14 +241,16 @@ function getLobbyByPlayerId(playerId: string): Lobby | null {
 
 // Helper function to broadcast available lobbies to all clients
 function broadcastAvailableLobbies() {
-  io.emit('availableLobbies', Object.values(lobbies).map(lobby => ({
-    id: lobby.id,
-    name: lobby.name,
-    isPrivate: lobby.isPrivate,
-    gameMode: lobby.gameMode,
-    playerCount: Object.keys(lobby.players).length,
-    gameState: lobby.gameState
-  })));
+  io.emit('availableLobbies', Object.values(lobbies)
+    .filter(lobby => !lobby.isPrivate)
+    .map(lobby => ({
+      id: lobby.id,
+      name: lobby.name,
+      isPrivate: lobby.isPrivate,
+      gameMode: lobby.gameMode,
+      playerCount: Object.keys(lobby.players).length,
+      gameState: lobby.gameState
+    })));
 }
 
 // Helper function to end a match in a lobby
@@ -1319,10 +1321,20 @@ io.on('connection', (socket) => {
   socket.on('joinLobby', (data: { lobbyId?: string, code?: string }) => {
     let targetLobby: Lobby | null = null;
     
-    if (data.lobbyId) {
+    if (data.code) {
+      // Code-based join — works for both public and private lobbies
+      targetLobby = Object.values(lobbies).find(lobby => lobby.code === data.code.toUpperCase()) || null;
+      if (!targetLobby) {
+        socket.emit('lobbyJoinError', { message: 'Invalid lobby code' });
+        return;
+      }
+    } else if (data.lobbyId) {
       targetLobby = lobbies[data.lobbyId];
-    } else if (data.code) {
-      targetLobby = Object.values(lobbies).find(lobby => lobby.code === data.code) || null;
+      // Block direct ID join for private lobbies — must use code
+      if (targetLobby?.isPrivate) {
+        socket.emit('lobbyJoinError', { message: 'This lobby is private. Enter the lobby code to join.' });
+        return;
+      }
     }
     
     if (!targetLobby) {
