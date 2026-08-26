@@ -8,121 +8,127 @@ interface Props {
   style?: React.CSSProperties;
 }
 
-interface DecodedFrame {
-  // Full composited frame for the whole GIF canvas
-  imageData: ImageData;
+// A fully-composited snapshot of every frame, stored as ImageBitmap for fast drawing
+interface ComposedFrame {
+  bitmap: ImageBitmap;
   delay: number; // ms
 }
 
-// Singleton: decode WispMove.gif once, share across all instances
-let cachedFrames: DecodedFrame[] | null = null;
-let cachePromise: Promise<DecodedFrame[]> | null = null;
-let gifWidth = 1;
-let gifHeight = 1;
+// Module-level singleton — decode once, reuse everywhere
+let cachedFrames: ComposedFrame[] | null = null;
+let cachePromise: Promise<ComposedFrame[]> | null = null;
+let gifW = 1;
+let gifH = 1;
 
-function loadFrames(): Promise<DecodedFrame[]> {
-  if (cachedFrames) return Promise.resolve(cachedFrames);
+async function loadFrames(): Promise<ComposedFrame[]> {
+  if (cachedFrames) return cachedFrames;
   if (cachePromise) return cachePromise;
 
-  cachePromise = fetch('/Wisp/WispMove.gif')
-    .then(r => r.arrayBuffer())
-    .then(buf => {
-      const gif = parseGIF(buf);
-      // patch:true gives us the pixel patch for each frame's bounding box
-      const raw = decompressFrames(gif, true);
-      if (raw.length === 0) return [];
+  cachePromise = (async () => {
+    const buf = await fetch('/Wisp/WispMove.gif').then(r => r.arrayBuffer());
+    const gif  = parseGIF(buf);
+    const raw  = decompressFrames(gif, true); // patch:true → per-frame patch pixels
+    if (raw.length === 0) return [];
 
-      // Use the GIF's logical screen dimensions for the composite canvas
-      // gifuct-js exposes these on the parsed gif object
-      const parsedGif = gif as any;
-      const lsd = parsedGif.lsd || parsedGif.header?.logicalScreenDesc;
-      const gw = lsd ? lsd.width  : raw[0].dims.width;
-      const gh = lsd ? lsd.height : raw[0].dims.height;
-      gifWidth  = gw;
-      gifHeight = gh;
+    // Derive logical screen size from first frame dims as fallback
+    const lsd = (gif as any).lsd ?? (gif as any).header?.logicalScreenDesc;
+    gifW = lsd?.width  ?? raw[0].dims.width;
+    gifH = lsd?.height ?? raw[0].dims.height;
 
-      // Composite canvas — we accumulate frames on this
-      const comp = document.createElement('canvas');
-      comp.width  = gw;
-      comp.height = gh;
-      const cCtx = comp.getContext('2d')!;
+    // Off-screen composite canvas — accumulates frame-over-frame like a real GIF decoder
+    const comp = new OffscreenCanvas(gifW, gifH);
+    const cCtx = comp.getContext('2d') as OffscreenCanvasRenderingContext2D;
 
-      // Snapshot canvas — used to restore previous frame on disposal=3
-      const snap = document.createElement('canvas');
-      snap.width  = gw;
-      snap.height = gh;
-      const sCtx = snap.getContext('2d')!;
+    // Backup canvas for disposal=3 (restore to previous)
+    const prev = new OffscreenCanvas(gifW, gifH);
+    const pCtx = prev.getContext('2d') as OffscreenCanvasRenderingContext2D;
 
-      const frames: DecodedFrame[] = raw.map(f => {
-        // Save snapshot BEFORE drawing (for disposal type 3 — restore to previous)
-        const disposalType = f.disposalType ?? 0;
-        if (disposalType === 3) {
-          sCtx.clearRect(0, 0, gw, gh);
-          sCtx.drawImage(comp, 0, 0);
-        }
+    const composed: ComposedFrame[] = [];
 
-        // Build patch ImageData at the frame's own dimensions
-        const patchId = new ImageData(
-          new Uint8ClampedArray(f.patch),
-          f.dims.width,
-          f.dims.height
-        );
+    for (const f of raw) {
+      const disposal = f.disposalType ?? 0;
 
-        // Draw patch onto composite at frame offset
-        const patchCanvas = document.createElement('canvas');
-        patchCanvas.width  = f.dims.width;
-        patchCanvas.height = f.dims.height;
-        const pCtx = patchCanvas.getContext('2d')!;
-        pCtx.putImageData(patchId, 0, 0);
-        cCtx.drawImage(patchCanvas, f.dims.left, f.dims.top);
+      // --- Save snapshot before draw if we'll need to restore later ---
+      if (disposal === 3) {
+        pCtx.clearRect(0, 0, gifW, gifH);
+        pCtx.drawImage(comp as unknown as CanvasImageSource, 0, 0);
+      }
 
-        // Snapshot the fully composited frame
-        const snap2 = document.createElement('canvas');
-        snap2.width  = gw;
-        snap2.height = gh;
-        snap2.getContext('2d')!.drawImage(comp, 0, 0);
-        const composed = snap2.getContext('2d')!.getImageData(0, 0, gw, gh);
+      // --- Draw this frame's patch onto the composite ---
+      // Build an ImageData for the patch at the frame's own sub-rect size
+      const patchData = new ImageData(
+        new Uint8ClampedArray(f.patch.buffer),
+        f.dims.width,
+        f.dims.height
+      );
+      // Put it onto a tiny temp canvas then drawImage at the correct offset
+      const tmp  = new OffscreenCanvas(f.dims.width, f.dims.height);
+      const tCtx = tmp.getContext('2d') as OffscreenCanvasRenderingContext2D;
+      tCtx.putImageData(patchData, 0, 0);
+      cCtx.drawImage(tmp as unknown as CanvasImageSource, f.dims.left, f.dims.top);
 
-        // Apply disposal for next frame
-        if (disposalType === 2) {
-          // Restore to background — clear the frame region
-          cCtx.clearRect(f.dims.left, f.dims.top, f.dims.width, f.dims.height);
-        } else if (disposalType === 3) {
-          // Restore to previous snapshot
-          cCtx.clearRect(0, 0, gw, gh);
-          cCtx.drawImage(snap, 0, 0);
-        }
-        // disposalType 0 or 1 — leave in place
-
-        return {
-          imageData: composed,
-          delay: Math.max((f.delay || 10) * 10, 20), // centiseconds → ms, min 20ms
-        };
+      // --- Snapshot the fully composited result as an ImageBitmap ---
+      const bitmap = await createImageBitmap(comp as unknown as ImageBitmapSource);
+      composed.push({
+        bitmap,
+        delay: Math.max((f.delay || 10) * 10, 20),
       });
 
-      cachedFrames = frames;
-      return frames;
-    });
+      // --- Apply disposal for next frame ---
+      if (disposal === 2) {
+        cCtx.clearRect(f.dims.left, f.dims.top, f.dims.width, f.dims.height);
+      } else if (disposal === 3) {
+        cCtx.clearRect(0, 0, gifW, gifH);
+        cCtx.drawImage(prev as unknown as CanvasImageSource, 0, 0);
+      }
+      // disposal 0 or 1 → leave composite as-is
+    }
+
+    cachedFrames = composed;
+    return composed;
+  })();
 
   return cachePromise;
 }
 
 export default function WispMoveCanvas({ playing, facingRight, style }: Props): React.ReactElement | null {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const stateRef  = useRef<{
-    frames: DecodedFrame[];
-    frameIdx: number;
-    loopDone: boolean;
-    raf: number;
-    lastTime: number;
-    elapsed: number;
-  } | null>(null);
+  const canvasRef      = useRef<HTMLCanvasElement>(null);
+  const frameIdxRef    = useRef(0);
+  const loopDoneRef    = useRef(false);
+  const elapsedRef     = useRef(0);
+  const lastTimeRef    = useRef(0);
+  const rafRef         = useRef(0);
+  const framesRef      = useRef<ComposedFrame[]>([]);
+
+  // Live refs so the RAF closure always sees the latest values
   const playingRef     = useRef(playing);
   const facingRightRef = useRef(facingRight);
   playingRef.current     = playing;
   facingRightRef.current = facingRight;
 
-  const [size, setSize] = useState({ w: 1, h: 1 });
+  // Track previous facing so we know when to redraw without a frame advance
+  const prevFacingRef  = useRef(facingRight);
+
+  const [ready, setReady] = useState(false);
+
+  // ── Draw a single frame index onto the canvas, respecting current facing ──
+  function drawFrame(frames: ComposedFrame[], idx: number) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const fw = gifW, fh = gifH;
+    ctx.clearRect(0, 0, fw, fh);
+    if (facingRightRef.current) {
+      ctx.save();
+      ctx.translate(fw, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(frames[idx].bitmap, 0, 0);
+      ctx.restore();
+    } else {
+      ctx.drawImage(frames[idx].bitmap, 0, 0);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -130,98 +136,89 @@ export default function WispMoveCanvas({ playing, facingRight, style }: Props): 
     loadFrames().then(frames => {
       if (cancelled || !canvasRef.current || frames.length === 0) return;
 
-      const fw = gifWidth;
-      const fh = gifHeight;
-      setSize({ w: fw, h: fh });
+      framesRef.current = frames;
+
+      const canvas = canvasRef.current!;
+      canvas.width  = gifW;
+      canvas.height = gifH;
+
+      frameIdxRef.current  = 0;
+      loopDoneRef.current  = false;
+      elapsedRef.current   = 0;
+      lastTimeRef.current  = performance.now();
+
+      setReady(true);
+      drawFrame(frames, 0);
 
       const loopStart = Math.max(0, frames.length - 2);
 
-      stateRef.current = {
-        frames,
-        frameIdx: 0,
-        loopDone: false,
-        raf: 0,
-        lastTime: performance.now(),
-        elapsed: 0,
-      };
-
-      const canvas = canvasRef.current!;
-      canvas.width  = fw;
-      canvas.height = fh;
-      const ctx = canvas.getContext('2d')!;
-
-      function drawFrame(idx: number) {
-        ctx.clearRect(0, 0, fw, fh);
-        // Flip horizontally if facing right (sprites face LEFT by default)
-        if (facingRightRef.current) {
-          ctx.save();
-          ctx.translate(fw, 0);
-          ctx.scale(-1, 1);
-          ctx.putImageData(frames[idx].imageData, 0, 0);
-          ctx.restore();
-        } else {
-          ctx.putImageData(frames[idx].imageData, 0, 0);
-        }
-      }
-
-      drawFrame(0);
-
       function tick(now: number) {
-        const s = stateRef.current!;
-        s.raf = requestAnimationFrame(tick);
+        rafRef.current = requestAnimationFrame(tick);
+        const frames = framesRef.current;
+
+        // Redraw whenever facing flips, even without a frame advance
+        if (facingRightRef.current !== prevFacingRef.current) {
+          prevFacingRef.current = facingRightRef.current;
+          drawFrame(frames, frameIdxRef.current);
+        }
 
         if (!playingRef.current) {
-          // Stopped — show frame 0 and reset so next move replays from start
-          if (s.frameIdx !== 0 || s.loopDone) {
-            s.frameIdx = 0;
-            s.loopDone = false;
-            s.elapsed  = 0;
-            drawFrame(0);
+          // Reset to frame 0 when stopped
+          if (frameIdxRef.current !== 0 || loopDoneRef.current) {
+            frameIdxRef.current = 0;
+            loopDoneRef.current = false;
+            elapsedRef.current  = 0;
+            drawFrame(frames, 0);
           }
-          s.lastTime = now;
+          lastTimeRef.current = now;
           return;
         }
 
-        const delta = now - s.lastTime;
-        s.lastTime  = now;
-        s.elapsed  += delta;
+        const delta = now - lastTimeRef.current;
+        lastTimeRef.current = now;
+        elapsedRef.current += delta;
 
-        const currentFrame = frames[s.frameIdx];
-        if (s.elapsed >= currentFrame.delay) {
-          s.elapsed -= currentFrame.delay;
+        const currentDelay = frames[frameIdxRef.current].delay;
+        if (elapsedRef.current >= currentDelay) {
+          elapsedRef.current -= currentDelay;
 
-          if (s.loopDone) {
-            // Ping-pong between last 2 frames
-            s.frameIdx = s.frameIdx === loopStart ? loopStart + 1 : loopStart;
+          if (loopDoneRef.current) {
+            // Alternate between last two frames
+            frameIdxRef.current = frameIdxRef.current === loopStart
+              ? loopStart + 1
+              : loopStart;
           } else {
-            s.frameIdx++;
-            if (s.frameIdx >= frames.length) {
-              s.frameIdx = loopStart;
-              s.loopDone = true;
+            frameIdxRef.current++;
+            if (frameIdxRef.current >= frames.length) {
+              frameIdxRef.current = loopStart;
+              loopDoneRef.current = true;
             }
           }
-          drawFrame(s.frameIdx);
+          drawFrame(frames, frameIdxRef.current);
         }
       }
 
-      stateRef.current.raf = requestAnimationFrame(tick);
+      rafRef.current = requestAnimationFrame(tick);
     });
 
     return () => {
       cancelled = true;
-      if (stateRef.current) cancelAnimationFrame(stateRef.current.raf);
+      cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
-  // Strip transform from style — we handle facing inside the canvas draw
-  const { transform: _ignored, ...styleWithoutTransform } = style ?? {};
+  const { transform: _t, ...styleWithoutTransform } = style ?? {};
 
   return (
     <canvas
       ref={canvasRef}
-      width={size.w}
-      height={size.h}
-      style={{ imageRendering: 'pixelated', ...styleWithoutTransform }}
+      width={gifW}
+      height={gifH}
+      style={{
+        imageRendering: 'pixelated',
+        display: ready ? undefined : 'none',
+        ...styleWithoutTransform,
+      }}
     />
   );
 }
