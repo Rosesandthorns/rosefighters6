@@ -3055,23 +3055,25 @@ export default function GameCanvas() {
                 const offsetX = 20 * scale;
                 const offsetY = 89 * scale;
 
-                // Center visual sprite hitbox horizontally & align bottom with player collision box
+                // Align: sprite's hitbox bottom = player collision box bottom
+                //        sprite's hitbox center-x = player collision box center-x
                 const playerCenterX = p.x + p.width / 2;
                 const playerBottom = p.y + p.height;
-                const visualBoxLeft = playerCenterX - spriteHitboxW / 2;
-                const visualBoxTop = playerBottom - spriteHitboxH;
 
+                // top: place sprite so (offsetY + spriteHitboxH) from its top = playerBottom
+                const top = playerBottom - offsetY - spriteHitboxH;
+
+                // left: place sprite so the hitbox is horizontally centered on the player
                 let left: number;
                 let transform: string;
 
                 if (p.facing === 'left') {
                   transform = 'scaleX(-1)';
-                  left = visualBoxLeft - (drawW - offsetX - spriteHitboxW);
+                  left = playerCenterX - (drawW - offsetX - spriteHitboxW / 2);
                 } else {
                   transform = 'none';
-                  left = visualBoxLeft - offsetX;
+                  left = playerCenterX - (offsetX + spriteHitboxW / 2);
                 }
-                const top = visualBoxTop - offsetY;
 
                 return (
                   <img
