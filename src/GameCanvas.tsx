@@ -350,7 +350,7 @@ export default function GameCanvas() {
     // Connect to same host, forcing websocket transport to avoid load balancing / polling issues
     // In production, will connect to the deployed server URL
     const serverUrl = (import.meta as any).env?.PROD ? window.location.origin : 'http://localhost:3000';
-    const newSocket = io(serverUrl, { transports: ['websocket'] });
+    const newSocket = io(serverUrl, { transports: ['websocket', 'polling'] });
     setSocket(newSocket);
 
     newSocket.on('connect', () => {

@@ -1991,7 +1991,7 @@ io.on('connection', (socket) => {
               if (chesterLocked) return;
               // Attack 1: emit state, freeze 120ms, then dash forward for ~480ms
               player.chesterState = 'attack1';
-              io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack1' });
+              io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack1' });
               // Freeze movement for 120ms on client via chesterAttack1Freeze flag
               io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack1Start' });
               // After 120ms: send dash signal (client handles velocity)
@@ -2004,7 +2004,7 @@ io.on('connection', (socket) => {
               setTimeout(() => {
                   if (players[player.id]) {
                       players[player.id].chesterState = 'idle';
-                      io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
+                      io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
                   }
               }, 600);
           } else if (data.ability === 2) {
@@ -2013,7 +2013,7 @@ io.on('connection', (socket) => {
               player.chesterAttack2Active = true;
               player.chesterDeflectActive = true;
               player.chesterState = 'attack2';
-              io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack2' });
+              io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack2' });
               // 280ms freeze — signal client to unlock movement after
               io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack2Start' });
               setTimeout(() => {
@@ -2027,7 +2027,7 @@ io.on('connection', (socket) => {
                       players[player.id].chesterAttack2Active = false;
                       players[player.id].chesterDeflectActive = false;
                       players[player.id].chesterState = 'idle';
-                      io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
+                      io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
                   }
               }, 800);
           } else if (data.ability === 3) {
@@ -2036,19 +2036,19 @@ io.on('connection', (socket) => {
               player.chesterAttack3Active = true;
               player.chesterState = 'attack3';
               player.chesterHealInterrupted = false;
-              io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack3' });
+              io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack3' });
               io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack3Start' });
               // Duration ~1200ms (enough for animation)
               setTimeout(() => {
                   if (players[player.id]) {
                       players[player.id].chesterAttack3Active = false;
                       players[player.id].chesterState = 'idle';
-                      io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
+                      io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
                       // Heal 30hp if not interrupted by damage
                       if (!players[player.id].chesterHealInterrupted) {
                           players[player.id].health = Math.min(players[player.id].maxHealth, players[player.id].health + 30);
-                          io.to(lobbyId).emit('playerHealthChanged', { id: player.id, health: players[player.id].health });
-                          io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterHealed' });
+                          io.to(lobby.id).emit('playerHealthChanged', { id: player.id, health: players[player.id].health });
+                          io.to(lobby.id).emit('playerEffect', { id: player.id, effect: 'chesterHealed' });
                       }
                   }
               }, 1200);
