@@ -592,6 +592,7 @@ function charWidth(id: string | null | undefined, form?: string): number {
   if (id === 'orbo') return 17;
   if (id === 'zobo') return 6;
   if (id === 'phantasma') return form === 'ghost' ? 16 : 45; // Ghost: 93 - 77 = 16, TV: 86 - 41 = 45
+  if (id === 'chester') return 56; // 76 - 20 = 56
   return 50;
 }
 
@@ -602,6 +603,7 @@ function charHeight(id: string | null | undefined, form?: string): number {
   if (id === 'orbo') return 44;
   if (id === 'zobo') return 70;
   if (id === 'phantasma') return form === 'ghost' ? 109 : 89; // Ghost: 124 - 15 = 109, TV: 109 - 20 = 89
+  if (id === 'chester') return 34; // 123 - 89 = 34
   return 50;
 }
 

@@ -490,8 +490,8 @@ export default function GameCanvas() {
           player.health = char.hp;
           // Character-specific dimensions
           const cid = data.newCharacterId;
-          player.width = cid === 'wax' ? 100 : cid === 'mirage' ? 12 : cid === 'coco' ? 50 : cid === 'orbo' ? 17 : cid === 'zobo' ? 6 : cid === 'phantasma' ? 45 : 50;
-          player.height = cid === 'wax' ? 120 : cid === 'mirage' ? 40 : cid === 'coco' ? 80 : cid === 'orbo' ? 44 : cid === 'zobo' ? 70 : cid === 'phantasma' ? 89 : 50;
+          player.width = cid === 'wax' ? 100 : cid === 'mirage' ? 12 : cid === 'coco' ? 50 : cid === 'orbo' ? 17 : cid === 'zobo' ? 6 : cid === 'phantasma' ? 45 : cid === 'chester' ? 56 : 50;
+          player.height = cid === 'wax' ? 120 : cid === 'mirage' ? 40 : cid === 'coco' ? 80 : cid === 'orbo' ? 44 : cid === 'zobo' ? 70 : cid === 'phantasma' ? 89 : cid === 'chester' ? 34 : 50;
           // Reset Phantasma form on character change
           player.phantasmaForm = 'tv';
           player.phantasmaState = 'idle';
@@ -2964,11 +2964,33 @@ export default function GameCanvas() {
                                         '/Chester/Chester.gif';
 
                 const drawH = 62;
-                const drawW = drawH;
-                const bottom = p.y + p.height + 4;
-                const top = bottom - drawH;
+                const drawW = 62;
+                const scale = 62 / 128; // scale 128x128 image down to 62x62
+
+                // Hitbox in unscaled 128x128 sprite: 20 89 to 76 123
+                // width = 56, height = 34, offsetX = 20, offsetY = 89
+                const spriteHitboxW = 56 * scale;
+                const spriteHitboxH = 34 * scale;
+                const offsetX = 20 * scale;
+                const offsetY = 89 * scale;
+
+                // Center visual sprite hitbox horizontally & align bottom with player collision box
                 const playerCenterX = p.x + p.width / 2;
-                const left = playerCenterX - drawW / 2;
+                const playerBottom = p.y + p.height;
+                const visualBoxLeft = playerCenterX - spriteHitboxW / 2;
+                const visualBoxTop = playerBottom - spriteHitboxH;
+
+                let left: number;
+                let transform: string;
+
+                if (p.facing === 'left') {
+                  transform = 'scaleX(-1)';
+                  left = visualBoxLeft - (drawW - offsetX - spriteHitboxW);
+                } else {
+                  transform = 'none';
+                  left = visualBoxLeft - offsetX;
+                }
+                const top = visualBoxTop - offsetY;
 
                 return (
                   <img
@@ -2983,7 +3005,7 @@ export default function GameCanvas() {
                       height: drawH,
                       imageRendering: 'pixelated',
                       // Sprites face RIGHT by default — flip for left-facing
-                      transform: p.facing === 'left' ? 'scaleX(-1)' : 'none',
+                      transform,
                       transformOrigin: 'center center',
                       filter: p.isInvincible ? 'drop-shadow(0 0 8px #facc15)' : 'none'
                     }}
