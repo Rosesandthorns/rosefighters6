@@ -142,26 +142,37 @@ interface Drone {
     angle?: number;
 }
 
-const ROSTER = [
-  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park' },
-  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park' },
-  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park' },
-  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park' },
-  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park' },
-  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park' },
-  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park' },
-  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park' },
-  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park' },
-  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park' },
-  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park' },
-  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park' },
-  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley' },
-  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley' },
-  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence' },
-  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence' },
-  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence' },
-  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage' },
-  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage' }
+interface RosterCharacter {
+  id: string;
+  name: string;
+  color: string;
+  hp: number;
+  speedMult: number;
+  category: string;
+  catchphrase?: string;
+  abilities?: string[];
+}
+
+const ROSTER: RosterCharacter[] = [
+  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park', catchphrase: "It's all in the cards", abilities: ["Throw card projectile", "Card boomerang return", "Card scatter burst"] },
+  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park', catchphrase: "The Future May Guide Us", abilities: ["Predictive dodge", "Future vision shield", "Time warp dash"] },
+  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park', catchphrase: "Anything I can't fix, I will destroy.", abilities: ["Drone attack", "Charge grab", "Repair beam"] },
+  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park', catchphrase: "All will be mine! Mine! MINE!", abilities: ["Coin toss", "Gold rush aura", "Treasure chest trap"] },
+  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park', catchphrase: "Heads up..! ... Or.. Off...", abilities: ["Coin flip attack", "Double or nothing", "Jackpot explosion"] },
+  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park', catchphrase: "The Head Chef, hehehe", abilities: ["Kitchen knife slash", "Chef knife throw", "Cooking pot slam"] },
+  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park', catchphrase: "⊵Ⲟ╾➹⺀⑽ⷝⴜ⋪⊄Ⱓ⻃③", abilities: ["Wisp orb projectiles", "Fire wall placement", "Position swap teleport"] },
+  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park', catchphrase: "I may not be home, But I will fight to return.", abilities: ["Rolling stone", "Earthquake slam", "Boulder barrier"] },
+  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park', catchphrase: "May The Forest Show You Mercy, For I Will Not.", abilities: ["Thorn whip", "Vine entangle", "Forest growth"] },
+  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park', catchphrase: "I dont want to fight you, but I am not a pushover.", abilities: ["Coco shell defense", "Nut projectile", "Rage mode"] },
+  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park', catchphrase: "Alone, desperate, has strength, strength is us.", abilities: ["Arm extend grab", "Multiple arm attack", "Desperation strength"] },
+  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park', catchphrase: "The Static Isn't just in your head!", abilities: ["TV projectile", "Ghost form float", "Static discharge"] },
+  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Fistula", abilities: ["Quick dash", "Needle stab", "Blood burst"] },
+  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Target aquired, Probability of Survival: Decreasing", abilities: ["Target lock", "Precision shot", "Calculated strike"] },
+  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence', catchphrase: "After all, I, the master tinkerer, wont even need to lay a finger on you.", abilities: ["Turret deploy", "Gadget throw", "Mechanical assist"] },
+  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence', catchphrase: "A darkness is not only along the horizon.", abilities: ["Lantern light", "Shadow bind", "Darkness zone"] },
+  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence', catchphrase: "Void Reigns Supreme through this blessed ink, may all worlds exist forever through my divinity.", abilities: ["Ink blob", "Ink wave", "Void transformation"] },
+  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "War is not a joke, death is but guranteed.", abilities: ["Command strike", "Tactical reload", "Battle cry"] },
+  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "Pink looks good on you, so does red!", abilities: ["Paint splash", "Color shift", "Artistic explosion"] }
 ];
 
 const GRAVITY = 1.2;
@@ -194,6 +205,7 @@ export default function GameCanvas() {
   const [currentLobby, setCurrentLobby] = useState<Lobby | null>(null);
   const [playerId, setPlayerId] = useState<string>('');
   const [localRoster, setLocalRoster] = useState<string[]>([]);
+  const [hoveredChar, setHoveredChar] = useState<RosterCharacter | null>(null);
   
   const playersRef = useRef<Record<string, Player>>({});
   const keysRef = useRef<{ [key: string]: boolean }>({});
@@ -2615,6 +2627,8 @@ export default function GameCanvas() {
                        socket?.emit('selectCharacter', char.id);
                      }
                    }}
+                   onMouseEnter={() => setHoveredChar(char)}
+                   onMouseLeave={() => setHoveredChar(null)}
                    className={`relative flex flex-col items-center justify-center bg-black/60 p-6 rounded-xl border-2 ${borderClass} ${opacityClass} hover:border-indigo-400 transition-all cursor-pointer`}
                  >
                     {char.id === 'pinedo' ? (
@@ -2647,6 +2661,28 @@ export default function GameCanvas() {
               </div>
             ))}
           </div>
+          )}
+
+          {/* Character Tooltip */}
+          {hoveredChar && (
+            <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-black/90 border-2 border-indigo-500 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(79,70,229,0.5)] z-50">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-16 h-16 rounded-lg rotate-12" style={{ backgroundColor: hoveredChar.color }}></div>
+                <div>
+                  <h3 className="text-2xl font-bold text-white">{hoveredChar.name}</h3>
+                  <p className="text-indigo-400 italic text-sm">"{hoveredChar.catchphrase}"</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Abilities</h4>
+                {hoveredChar.abilities?.map((ability, index) => (
+                  <div key={index} className="flex items-start gap-2">
+                    <span className="text-indigo-400 font-bold min-w-[20px]">{index + 1}.</span>
+                    <span className="text-gray-300 text-sm">{ability}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className="flex justify-center gap-4 mt-auto">
