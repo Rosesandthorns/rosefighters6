@@ -381,11 +381,32 @@ export default function GameCanvas() {
 
     newSocket.on('forcePosition', (data: { id: string, x: number, y: number }) => {
         if (playersRef.current[data.id]) {
-            playersRef.current[data.id].x = data.x;
-            playersRef.current[data.id].y = data.y;
-            playersRef.current[data.id].targetX = data.x;
-            playersRef.current[data.id].targetY = data.y;
-            playersRef.current[data.id].velocity = { x: 0, y: 0 };
+            const fp = playersRef.current[data.id];
+            fp.x = data.x;
+            fp.y = data.y;
+            fp.targetX = data.x;
+            fp.targetY = data.y;
+            fp.velocity = { x: 0, y: 0 };
+
+            // Snap to nearest platform surface so the player doesn't fall through after teleport.
+            // Only applies to the local player (others are interpolated from server state).
+            if (data.id === newSocket.id) {
+                let bestY: number | null = null;
+                for (const plat of PLATFORMS) {
+                    // Player must overlap horizontally with the platform
+                    if (fp.x + fp.width <= plat.x || fp.x >= plat.x + plat.width) continue;
+                    const surfaceY = plat.y - fp.height;
+                    // Only snap UP onto a platform that is at or below the teleport position
+                    if (surfaceY >= data.y - fp.height && (bestY === null || surfaceY < bestY)) {
+                        bestY = surfaceY;
+                    }
+                }
+                if (bestY !== null) {
+                    fp.y = bestY;
+                    fp.targetY = bestY;
+                    fp.isGrounded = true;
+                }
+            }
         }
     });
 
