@@ -154,25 +154,25 @@ interface RosterCharacter {
 }
 
 const ROSTER: RosterCharacter[] = [
-  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park', catchphrase: "It's all in the cards", abilities: ["Throw card projectile", "Card boomerang return", "Card scatter burst"] },
-  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park', catchphrase: "The Future May Guide Us", abilities: ["Predictive dodge", "Future vision shield", "Time warp dash"] },
-  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park', catchphrase: "Anything I can't fix, I will destroy.", abilities: ["Drone attack", "Charge grab", "Repair beam"] },
-  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park', catchphrase: "All will be mine! Mine! MINE!", abilities: ["Coin toss", "Gold rush aura", "Treasure chest trap"] },
-  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park', catchphrase: "Heads up..! ... Or.. Off...", abilities: ["Coin flip attack", "Double or nothing", "Jackpot explosion"] },
-  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park', catchphrase: "The Head Chef, hehehe", abilities: ["Kitchen knife slash", "Chef knife throw", "Cooking pot slam"] },
-  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park', catchphrase: "⊵Ⲟ╾➹⺀⑽ⷝⴜ⋪⊄Ⱓ⻃③", abilities: ["Wisp orb projectiles", "Fire wall placement", "Position swap teleport"] },
-  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park', catchphrase: "I may not be home, But I will fight to return.", abilities: ["Rolling stone", "Earthquake slam", "Boulder barrier"] },
-  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park', catchphrase: "May The Forest Show You Mercy, For I Will Not.", abilities: ["Thorn whip", "Vine entangle", "Forest growth"] },
-  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park', catchphrase: "I dont want to fight you, but I am not a pushover.", abilities: ["Coco shell defense", "Nut projectile", "Rage mode"] },
-  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park', catchphrase: "Alone, desperate, has strength, strength is us.", abilities: ["Arm extend grab", "Multiple arm attack", "Desperation strength"] },
-  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park', catchphrase: "The Static Isn't just in your head!", abilities: ["TV projectile", "Ghost form float", "Static discharge"] },
-  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Fistula", abilities: ["Quick dash", "Needle stab", "Blood burst"] },
-  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Target aquired, Probability of Survival: Decreasing", abilities: ["Target lock", "Precision shot", "Calculated strike"] },
-  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence', catchphrase: "After all, I, the master tinkerer, wont even need to lay a finger on you.", abilities: ["Turret deploy", "Gadget throw", "Mechanical assist"] },
-  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence', catchphrase: "A darkness is not only along the horizon.", abilities: ["Lantern light", "Shadow bind", "Darkness zone"] },
-  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence', catchphrase: "Void Reigns Supreme through this blessed ink, may all worlds exist forever through my divinity.", abilities: ["Ink blob", "Ink wave", "Void transformation"] },
-  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "War is not a joke, death is but guranteed.", abilities: ["Command strike", "Tactical reload", "Battle cry"] },
-  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "Pink looks good on you, so does red!", abilities: ["Paint splash", "Color shift", "Artistic explosion"] }
+  { id: 'mirage', name: 'Mirage', color: '#a855f7', hp: 80, speedMult: 1.0, category: 'Mirage Park', catchphrase: "It's all in the cards", abilities: ["Card Throw", "Card Wall", "Teleport Dash"] },
+  { id: 'orbo', name: 'Orbo', color: '#06b6d4', hp: 60, speedMult: 1.0, category: 'Mirage Park', catchphrase: "The Future May Guide Us", abilities: ["Deflect Dash", "Chrono Zone", "Safety Warp"] },
+  { id: 'rica', name: 'Rica', color: '#ef4444', hp: 120, speedMult: 0.8, category: 'Mirage Park', catchphrase: "Anything I can't fix, I will destroy.", abilities: ["Mecha Grab", "Charge Dash", "Drone Deploy"] },
+  { id: 'chester', name: 'Chester', color: '#8b4513', hp: 200, speedMult: 0.2, category: 'Mirage Park', catchphrase: "All will be mine! Mine! MINE!", abilities: ["Coin Dash", "Deflect Stance", "Greed Heal"] },
+  { id: 'pinedo', name: 'Pinedo', color: '#ffffff', hp: 100, speedMult: 1.0, category: 'Mirage Park', catchphrase: "Heads up..! ... Or.. Off...", abilities: ["Coin Slash", "Boomerang Throw", "Coin Storm"] },
+  { id: 'morka', name: 'Morka', color: '#6b7280', hp: 120, speedMult: 1.2, category: 'Mirage Park', catchphrase: "The Head Chef, hehehe", abilities: ["Plate Throw", "Extended Grab", "Super Jump"] },
+  { id: 'wisp', name: 'Wisp', color: '#3b82f6', hp: 50, speedMult: 1.5, category: 'Mirage Park', catchphrase: "⊵Ⲟ╾➹⺀⑽ⷝⴜ⋪⊄Ⱓ⻃③", abilities: ["Spirit Orbs", "Fire Wall", "Position Swap"] },
+  { id: 'cole', name: 'Cole', color: '#4b5563', hp: 150, speedMult: 0.5, category: 'Mirage Park', catchphrase: "I may not be home, But I will fight to return.", abilities: ["Stone Roll", "Teleport Above", "Ground Crush"] },
+  { id: 'oakwell', name: 'Oakwell', color: '#92400e', hp: 150, speedMult: 0.7, category: 'Mirage Park', catchphrase: "May The Forest Show You Mercy, For I Will Not.", abilities: ["Thorn Shot", "Bramble Wall", "Vine Teleport"] },
+  { id: 'coco', name: 'Coco', color: '#78350f', hp: 200, speedMult: 0.8, category: 'Mirage Park', catchphrase: "I dont want to fight you, but I am not a pushover.", abilities: ["Chocolate Scatter", "Cocoa Fountain", "Coco Rage"] },
+  { id: 'zobo', name: 'Zobo', color: '#e2e8f0', hp: 150, speedMult: 0.2, category: 'Mirage Park', catchphrase: "Alone, desperate, has strength, strength is us.", abilities: ["Spider Arm", "Web Lob", "Regather"] },
+  { id: 'phantasma', name: 'Phantasma', color: '#a855f7', hp: 500, speedMult: 0.1, category: 'Mirage Park', catchphrase: "The Static Isn't just in your head!", abilities: ["Static Discharge", "Electric Jolt", "Ghost Transform"] },
+  { id: 'pip', name: 'Pip', color: '#991b1b', hp: 30, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Fistula", abilities: ["Blood Cloud", "Execute", "Needle Stab"] },
+  { id: 'nexus', name: 'Nexus', color: '#f97316', hp: 40, speedMult: 3.0, category: 'Rose Valley', catchphrase: "Target aquired, Probability of Survival: Decreasing", abilities: ["Static Charge", "Chrono Shuffle", "Laser Beam"] },
+  { id: 'neddy', name: 'Neddy', color: '#eab308', hp: 80, speedMult: 1.2, category: 'Project Defence', catchphrase: "After all, I, the master tinkerer, wont even need to lay a finger on you.", abilities: ["Drone Swarm A", "Drone Swarm B", "Drone Swarm C"] },
+  { id: 'lantern', name: 'The Lantern Setter', color: '#fef08a', hp: 120, speedMult: 0.9, category: 'Project Defence', catchphrase: "A darkness is not only along the horizon.", abilities: ["Lantern Toss", "Blind", "Book Barrage"] },
+  { id: 'wax', name: 'Ink Drawn Shopkeeper', color: '#1e1b2e', hp: 2500, speedMult: 0.1, category: 'Project Defence', catchphrase: "Void Reigns Supreme through this blessed ink, may all worlds exist forever through my divinity.", abilities: ["Dart Volley", "Book Rain", "Ink Wave"] },
+  { id: 'kaelen', name: 'Commander Kaelen', color: '#4d7c0f', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "War is not a joke, death is but guranteed.", abilities: ["Rifle Shot", "Explosive Bomb", "Tactical Roll"] },
+  { id: 'luma', name: 'Luma Art', color: '#ec4899', hp: 100, speedMult: 1.1, category: 'Vantage', catchphrase: "Pink looks good on you, so does red!", abilities: ["Paint Lob", "Paint Trap", "Paint Burst"] }
 ];
 
 const GRAVITY = 1.2;
@@ -206,6 +206,23 @@ export default function GameCanvas() {
   const [playerId, setPlayerId] = useState<string>('');
   const [localRoster, setLocalRoster] = useState<string[]>([]);
   const [hoveredChar, setHoveredChar] = useState<RosterCharacter | null>(null);
+
+  // Helper function to get character icon
+  const getCharacterIcon = (char: RosterCharacter, withMargin = false) => {
+    const baseClass = "w-16 h-16 object-contain";
+    const marginClass = withMargin ? "mb-4" : "";
+    const combinedClass = `${baseClass} ${marginClass}`;
+    
+    if (char.id === 'pinedo') return <img src="/Pinedo/PinedoIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'mirage') return <img src="/Mirage/MirageIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'coco') return <img src="/Coco/CocoIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'zobo') return <img src="/Zobo/ZoboIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'orbo') return <img src="/Orbo/OrboIdle.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'phantasma') return <img src="/Phantasma/PhantasmaIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'chester') return <img src="/Chester/ChesterIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'wisp') return <img src="/Wisp/WispMPIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    return <div className={`w-16 h-16 rounded-lg rotate-12 ${marginClass}`} style={{ backgroundColor: char.color }}></div>;
+  };
   
   const playersRef = useRef<Record<string, Player>>({});
   const keysRef = useRef<{ [key: string]: boolean }>({});
@@ -2631,25 +2648,7 @@ export default function GameCanvas() {
                    onMouseLeave={() => setHoveredChar(null)}
                    className={`relative flex flex-col items-center justify-center bg-black/60 p-6 rounded-xl border-2 ${borderClass} ${opacityClass} hover:border-indigo-400 transition-all cursor-pointer`}
                  >
-                    {char.id === 'pinedo' ? (
-                      <img src="/Pinedo/PinedoIcon.png" alt="Pinedo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : char.id === 'mirage' ? (
-                      <img src="/Mirage/MirageIcon.png" alt="Mirage" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : char.id === 'coco' ? (
-                      <img src="/Coco/CocoIcon.png" alt="Coco" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : char.id === 'zobo' ? (
-                      <img src="/Zobo/ZoboIcon.png" alt="Zobo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : char.id === 'orbo' ? (
-                      <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : char.id === 'phantasma' ? (
-                      <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : char.id === 'chester' ? (
-                      <img src="/Chester/ChesterIcon.png" alt="Chester" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : char.id === 'wisp' ? (
-                      <img src="/Wisp/WispMPIcon.png" alt="Wisp" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
-                    ) : (
-                      <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
-                    )}
+                    {getCharacterIcon(char, true)}
                     <span className="font-bold tracking-tight text-lg mb-1">{char.name}</span>
                     <div className="h-4">
                        {(isTaken || isInMyRoster) && <span className={`text-[10px] uppercase tracking-widest ${isInMyRoster ? 'text-indigo-400' : isMe ? 'text-indigo-400' : 'text-red-400'}`}>{selectionText}</span>}
@@ -2667,7 +2666,7 @@ export default function GameCanvas() {
           {hoveredChar && (
             <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-black/90 border-2 border-indigo-500 rounded-xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(79,70,229,0.5)] z-50">
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-16 h-16 rounded-lg rotate-12" style={{ backgroundColor: hoveredChar.color }}></div>
+                {getCharacterIcon(hoveredChar)}
                 <div>
                   <h3 className="text-2xl font-bold text-white">{hoveredChar.name}</h3>
                   <p className="text-indigo-400 italic text-sm">"{hoveredChar.catchphrase}"</p>
