@@ -178,7 +178,9 @@ export default function WispMoveCanvas({ playing, facingRight, style }: Props): 
         lastTimeRef.current = now;
         elapsedRef.current += delta;
 
-        const currentDelay = frames[frameIdxRef.current].delay;
+        const currentDelay = loopDoneRef.current
+          ? frames[frameIdxRef.current].delay  // natural GIF timing for the 2-frame loop
+          : 20;                                // force 20ms/frame for the intro pass
         if (elapsedRef.current >= currentDelay) {
           elapsedRef.current -= currentDelay;
 
