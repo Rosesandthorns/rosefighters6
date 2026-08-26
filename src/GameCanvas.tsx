@@ -695,38 +695,30 @@ export default function GameCanvas() {
         if (data.effect === 'pinedoAttack3Main') {
             p.pinedoState = 'attack3main';
         }
-        // Chester state sync (for other players watching)
+        // Chester state & timing sync
         if (data.effect === 'chesterState' && (data as any).state) {
             p.chesterState = (data as any).state;
         }
-        // Chester attack1: local player — freeze, then dash
-        if (data.effect === 'chesterAttack1Start' && data.id === myId) {
-            chesterAttack1FreezeRef.current = true;
-            chesterAttack1DashRef.current = false;
+        if (data.effect === 'chesterAttack1Start') {
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['chesterAtk1Freeze'] = Date.now() + 120;
+            p.activeEffects['chesterAtk1Dash'] = Date.now() + 600;
+            p.chesterState = 'attack1';
         }
-        if (data.effect === 'chesterAttack1Dash' && data.id === myId) {
-            chesterAttack1FreezeRef.current = false;
-            chesterAttack1DashRef.current = true;
+        if (data.effect === 'chesterAttack2Start') {
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['chesterAtk2Freeze'] = Date.now() + 280;
+            p.activeEffects['chesterAtk2Active'] = Date.now() + 800;
+            p.chesterState = 'attack2';
         }
-        // Chester attack2: local player — freeze 280ms, then unlock movement
-        if (data.effect === 'chesterAttack2Start' && data.id === myId) {
-            chesterAttack2FreezeRef.current = true;
-            chesterAttack2ActiveRef.current = true;
+        if (data.effect === 'chesterAttack3Start') {
+            p.activeEffects = p.activeEffects || {};
+            p.activeEffects['chesterAtk3Active'] = Date.now() + 1200;
+            p.chesterState = 'attack3';
         }
-        if (data.effect === 'chesterAttack2MoveUnlock' && data.id === myId) {
-            chesterAttack2FreezeRef.current = false;
-        }
-        // Chester attack3: local player — lock movement + attacks
-        if (data.effect === 'chesterAttack3Start' && data.id === myId) {
-            chesterAttack3ActiveRef.current = true;
-        }
-        // Clear Chester refs when state returns to idle
-        if (data.effect === 'chesterState' && (data as any).state === 'idle' && data.id === myId) {
-            chesterAttack1FreezeRef.current = false;
-            chesterAttack1DashRef.current = false;
-            chesterAttack2FreezeRef.current = false;
-            chesterAttack2ActiveRef.current = false;
-            chesterAttack3ActiveRef.current = false;
+        if (data.effect === 'healCancel' && p.characterId === 'chester') {
+            if (p.activeEffects) p.activeEffects['chesterAtk3Active'] = 0;
+            p.chesterState = 'idle';
         }
         if (data.effect === 'mirageState' && (data as any).state) {
             p.mirageState = (data as any).state;
@@ -1133,12 +1125,17 @@ export default function GameCanvas() {
               const isColeRollActive = myPlayer.activeEffects?.['coleRoll'] && myPlayer.activeEffects['coleRoll'] > Date.now();
               const isPhantomDashActive = myPlayer.activeEffects?.['phantomDash'] && myPlayer.activeEffects['phantomDash'] > Date.now();
               const isRicaRunActive = myPlayer.activeEffects?.['ricaRun'] && myPlayer.activeEffects['ricaRun'] > Date.now();
-              if (isColeRollActive || isRicaRunActive || isPhantomDashActive) {
-                  if (!myPlayer.isGrounded && !isPhantomDashActive) {
+              const isChesterFreeze1 = myPlayer.activeEffects?.['chesterAtk1Freeze'] && myPlayer.activeEffects['chesterAtk1Freeze'] > Date.now();
+              const isChesterDashActive = !isChesterFreeze1 && myPlayer.activeEffects?.['chesterAtk1Dash'] && myPlayer.activeEffects['chesterAtk1Dash'] > Date.now();
+              const isChesterFreeze2 = myPlayer.activeEffects?.['chesterAtk2Freeze'] && myPlayer.activeEffects['chesterAtk2Freeze'] > Date.now();
+              const isChesterFreeze3 = myPlayer.activeEffects?.['chesterAtk3Active'] && myPlayer.activeEffects['chesterAtk3Active'] > Date.now();
+
+              if (isColeRollActive || isRicaRunActive || isPhantomDashActive || isChesterDashActive) {
+                  if (!myPlayer.isGrounded && !isPhantomDashActive && !isChesterDashActive) {
                       if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
                       if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
                   } else {
-                      const dashSpeed = isPhantomDashActive ? currentSpeed * 3.0 : (isColeRollActive ? MOVE_SPEED * 2 : currentSpeed * 2.5);
+                      const dashSpeed = isPhantomDashActive ? currentSpeed * 3.0 : (isColeRollActive ? MOVE_SPEED * 2 : (isChesterDashActive ? MOVE_SPEED * 2.5 : currentSpeed * 2.5));
                       moveTarget = myPlayer.facing === 'right' ? dashSpeed : -dashSpeed;
                       
                       if (!isPhantomDashActive) {
@@ -1159,16 +1156,15 @@ export default function GameCanvas() {
                           if (!hasGround) {
                               if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
                               if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
+                              if (isChesterDashActive) myPlayer.activeEffects['chesterAtk1Dash'] = 0;
                               myPlayer.activeEffects['edgeBrake'] = Date.now() + 150;
                               moveTarget = 0;
                               myPlayer.velocity.x = 0;
                           }
                       }
                   }
-              } else if (chesterAttack1DashRef.current) {
-                  moveTarget = myPlayer.facing === 'right' ? currentSpeed * 3 : -currentSpeed * 3;
-              } else if (chesterAttack1FreezeRef.current || chesterAttack2FreezeRef.current || chesterAttack3ActiveRef.current) {
-                  moveTarget = 0; // frozen during attack animations
+              } else if (isChesterFreeze1 || isChesterFreeze2 || isChesterFreeze3) {
+                  moveTarget = 0; // frozen during attack startups or heal
               } else if (myPlayer.activeEffects?.['ricaCharge'] && myPlayer.activeEffects['ricaCharge'] > Date.now()) {
                   moveTarget = 0; // frozen while charging
               } else if (myPlayer.activeEffects?.['edgeBrake'] && myPlayer.activeEffects['edgeBrake'] > Date.now()) {
@@ -1193,10 +1189,18 @@ export default function GameCanvas() {
                   myPlayer.pinedoState = moveTarget !== 0 ? 'run' : 'idle';
                 }
               }
-              // Update Chester walk/idle state
+              // Update Chester walk/idle/attack state
               if (myPlayer.characterId === 'chester') {
-                const cAttack = ['attack1', 'attack2', 'attack3'];
-                if (!cAttack.includes(myPlayer.chesterState || '')) {
+                const isAtk1 = myPlayer.activeEffects?.['chesterAtk1Dash'] && myPlayer.activeEffects['chesterAtk1Dash'] > Date.now();
+                const isAtk2 = myPlayer.activeEffects?.['chesterAtk2Active'] && myPlayer.activeEffects['chesterAtk2Active'] > Date.now();
+                const isAtk3 = myPlayer.activeEffects?.['chesterAtk3Active'] && myPlayer.activeEffects['chesterAtk3Active'] > Date.now();
+                if (isAtk1) {
+                  myPlayer.chesterState = 'attack1';
+                } else if (isAtk2) {
+                  myPlayer.chesterState = 'attack2';
+                } else if (isAtk3) {
+                  myPlayer.chesterState = 'attack3';
+                } else {
                   myPlayer.chesterState = moveTarget !== 0 ? 'walk' : 'idle';
                 }
               }
@@ -1261,7 +1265,7 @@ export default function GameCanvas() {
               // Jump — TV form Phantasma cannot jump; Ghost form gets 30% higher jump
               const isTvForm = myPlayer.characterId === 'phantasma' && (myPlayer.phantasmaForm || 'tv') === 'tv';
               const jumpBoost = myPlayer.characterId === 'phantasma' && myPlayer.phantasmaForm === 'ghost' ? 1.3 : 1.0;
-              if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && myPlayer.isGrounded && !(myPlayer.activeEffects?.['ricaCharge'] > Date.now()) && myPlayer.characterId !== 'wax' && !isTvForm) {
+              if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && myPlayer.isGrounded && !(myPlayer.activeEffects?.['ricaCharge'] > Date.now()) && myPlayer.characterId !== 'wax' && !isTvForm && !isChesterFreeze1 && !isChesterFreeze2 && !isChesterFreeze3) {
                 myPlayer.velocity.y = JUMP_FORCE * jumpBoost;
                 myPlayer.isGrounded = false;
               }
@@ -1318,20 +1322,41 @@ export default function GameCanvas() {
           let ab2CD = isNeddy ? 30 : (isWax ? 90 : (isKaelen ? 15 : 300)); // Kaelen bomb: 15f for both place and detonate; server handles 10s post-detonate lockout
           let ab3CD = isNeddy ? 30 : (isWax ? 90 : (isKaelen ? 150 : 300)); // Kaelen roll 5s cooldown
 
-          const isChesterLocked = myPlayer.characterId === 'chester' && (chesterAttack1FreezeRef.current || chesterAttack1DashRef.current || chesterAttack2ActiveRef.current || chesterAttack3ActiveRef.current);
+          const isChesterLocked = myPlayer.characterId === 'chester' && (
+            (myPlayer.activeEffects?.['chesterAtk1Dash'] && myPlayer.activeEffects['chesterAtk1Dash'] > Date.now()) ||
+            (myPlayer.activeEffects?.['chesterAtk2Active'] && myPlayer.activeEffects['chesterAtk2Active'] > Date.now()) ||
+            (myPlayer.activeEffects?.['chesterAtk3Active'] && myPlayer.activeEffects['chesterAtk3Active'] > Date.now())
+          );
 
           if (isKaelen && mouseButtons[0] && abilityCooldownsRef.current[1] === 0 && !myPlayer.isGrabbingLedge && !kaelenMovingRef.current && myPlayer.isGrounded && !isChesterLocked) {
               socket.emit('useAbility', { ability: 1 });
               abilityCooldownsRef.current[1] = ab1CD;
           } else if (!isKaelen && mouseButtons[0] && abilityCooldownsRef.current[1] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
+              if (myPlayer.characterId === 'chester') {
+                  myPlayer.activeEffects = myPlayer.activeEffects || {};
+                  myPlayer.activeEffects['chesterAtk1Freeze'] = Date.now() + 120;
+                  myPlayer.activeEffects['chesterAtk1Dash'] = Date.now() + 600;
+                  myPlayer.chesterState = 'attack1';
+              }
               socket.emit('useAbility', { ability: 1 });
               abilityCooldownsRef.current[1] = ab1CD;
               hitCooldownsRef.current = {};
           } else if (mouseButtons[1] && abilityCooldownsRef.current[2] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
+              if (myPlayer.characterId === 'chester') {
+                  myPlayer.activeEffects = myPlayer.activeEffects || {};
+                  myPlayer.activeEffects['chesterAtk2Freeze'] = Date.now() + 280;
+                  myPlayer.activeEffects['chesterAtk2Active'] = Date.now() + 800;
+                  myPlayer.chesterState = 'attack2';
+              }
               socket.emit('useAbility', { ability: 2 });
               abilityCooldownsRef.current[2] = ab2CD;
               hitCooldownsRef.current = {};
           } else if (mouseButtons[2] && abilityCooldownsRef.current[3] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
+              if (myPlayer.characterId === 'chester') {
+                  myPlayer.activeEffects = myPlayer.activeEffects || {};
+                  myPlayer.activeEffects['chesterAtk3Active'] = Date.now() + 1200;
+                  myPlayer.chesterState = 'attack3';
+              }
               socket.emit('useAbility', { ability: 3 });
               abilityCooldownsRef.current[3] = ab3CD;
               hitCooldownsRef.current = {};
