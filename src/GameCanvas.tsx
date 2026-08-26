@@ -225,6 +225,7 @@ export default function GameCanvas() {
   const cocoImgs = useRef<Record<string, HTMLImageElement>>({});
   const orboImgs = useRef<Record<string, HTMLImageElement>>({});
   const zoboImgs = useRef<Record<string, HTMLImageElement>>({});
+  const chesterImgs = useRef<Record<string, HTMLImageElement>>({});
   // Zobo arm tether state: server emits per-frame position
   const zoboArmRef = useRef<Record<string, { x1: number; y1: number; x2: number; y2: number; active: boolean }>>({});
 
@@ -294,6 +295,18 @@ export default function GameCanvas() {
       const img = new Image(); img.src = src;
       zoboImgs.current[key] = img;
     });
+    const chesterAssets: Record<string, string> = {
+      idle:    '/Chester/Chester.gif',
+      walk:    '/Chester/ChesterWalk.gif',
+      attack1: '/Chester/ChesterAttack1.gif',
+      attack2: '/Chester/ChesterAttack2.gif',
+      attack3: '/Chester/ChesterAttack3.gif',
+      icon:    '/Chester/ChesterIcon.png',
+    };
+    Object.entries(chesterAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
+      chesterImgs.current[key] = img;
+    });
   }, []);
 
   const spawnSlamParticles = (x: number, y: number, color: string) => {
@@ -322,6 +335,12 @@ export default function GameCanvas() {
   const screenEffectRef = useRef<{ type: string; expiresAt: number } | null>(null);
   const kaelenBombRef = useRef<{ x: number; y: number } | null>(null);
   const [pinedoProjectiles, setPinedoProjectiles] = useState<{id:string,x:number,y:number}[]>([]);
+  // Chester attack state refs
+  const chesterAttack1FreezeRef = useRef<boolean>(false);   // true = frozen 120ms
+  const chesterAttack1DashRef = useRef<boolean>(false);     // true = dashing forward
+  const chesterAttack2FreezeRef = useRef<boolean>(false);   // true = frozen 280ms
+  const chesterAttack2ActiveRef = useRef<boolean>(false);   // true = attack2 animation running (blocks ab1/ab3)
+  const chesterAttack3ActiveRef = useRef<boolean>(false);   // true = attack3 running (locks movement+ab1/ab2)
   // Mirage trail: last N positions for silhouette effect
   const mirageTrailRef = useRef<{x:number,y:number,facing:'left'|'right',alpha:number}[]>([]);
   const [mirageOverlay, setMirageOverlay] = useState<{id:string,x:number,y:number,state:string,facing:'left'|'right',trail:{x:number,y:number,facing:'left'|'right',alpha:number}[]}[]>([]);
@@ -675,6 +694,39 @@ export default function GameCanvas() {
         }
         if (data.effect === 'pinedoAttack3Main') {
             p.pinedoState = 'attack3main';
+        }
+        // Chester state sync (for other players watching)
+        if (data.effect === 'chesterState' && (data as any).state) {
+            p.chesterState = (data as any).state;
+        }
+        // Chester attack1: local player — freeze, then dash
+        if (data.effect === 'chesterAttack1Start' && data.id === myId) {
+            chesterAttack1FreezeRef.current = true;
+            chesterAttack1DashRef.current = false;
+        }
+        if (data.effect === 'chesterAttack1Dash' && data.id === myId) {
+            chesterAttack1FreezeRef.current = false;
+            chesterAttack1DashRef.current = true;
+        }
+        // Chester attack2: local player — freeze 280ms, then unlock movement
+        if (data.effect === 'chesterAttack2Start' && data.id === myId) {
+            chesterAttack2FreezeRef.current = true;
+            chesterAttack2ActiveRef.current = true;
+        }
+        if (data.effect === 'chesterAttack2MoveUnlock' && data.id === myId) {
+            chesterAttack2FreezeRef.current = false;
+        }
+        // Chester attack3: local player — lock movement + attacks
+        if (data.effect === 'chesterAttack3Start' && data.id === myId) {
+            chesterAttack3ActiveRef.current = true;
+        }
+        // Clear Chester refs when state returns to idle
+        if (data.effect === 'chesterState' && (data as any).state === 'idle' && data.id === myId) {
+            chesterAttack1FreezeRef.current = false;
+            chesterAttack1DashRef.current = false;
+            chesterAttack2FreezeRef.current = false;
+            chesterAttack2ActiveRef.current = false;
+            chesterAttack3ActiveRef.current = false;
         }
         if (data.effect === 'mirageState' && (data as any).state) {
             p.mirageState = (data as any).state;
@@ -1113,8 +1165,10 @@ export default function GameCanvas() {
                           }
                       }
                   }
-              } else if (myPlayer.activeEffects?.['toothDash'] && myPlayer.activeEffects['toothDash'] > Date.now()) {
+              } else if (chesterAttack1DashRef.current) {
                   moveTarget = myPlayer.facing === 'right' ? currentSpeed * 3 : -currentSpeed * 3;
+              } else if (chesterAttack1FreezeRef.current || chesterAttack2FreezeRef.current || chesterAttack3ActiveRef.current) {
+                  moveTarget = 0; // frozen during attack animations
               } else if (myPlayer.activeEffects?.['ricaCharge'] && myPlayer.activeEffects['ricaCharge'] > Date.now()) {
                   moveTarget = 0; // frozen while charging
               } else if (myPlayer.activeEffects?.['edgeBrake'] && myPlayer.activeEffects['edgeBrake'] > Date.now()) {
@@ -1137,6 +1191,13 @@ export default function GameCanvas() {
                 const attackStates = ['attack1','attack2','waiting','attack3start','attack3main'];
                 if (!attackStates.includes(myPlayer.pinedoState || '')) {
                   myPlayer.pinedoState = moveTarget !== 0 ? 'run' : 'idle';
+                }
+              }
+              // Update Chester walk/idle state
+              if (myPlayer.characterId === 'chester') {
+                const cAttack = ['attack1', 'attack2', 'attack3'];
+                if (!cAttack.includes(myPlayer.chesterState || '')) {
+                  myPlayer.chesterState = moveTarget !== 0 ? 'walk' : 'idle';
                 }
               }
               // Update Coco walk/idle state
@@ -1257,18 +1318,20 @@ export default function GameCanvas() {
           let ab2CD = isNeddy ? 30 : (isWax ? 90 : (isKaelen ? 15 : 300)); // Kaelen bomb: 15f for both place and detonate; server handles 10s post-detonate lockout
           let ab3CD = isNeddy ? 30 : (isWax ? 90 : (isKaelen ? 150 : 300)); // Kaelen roll 5s cooldown
 
-          if (isKaelen && mouseButtons[0] && abilityCooldownsRef.current[1] === 0 && !myPlayer.isGrabbingLedge && !kaelenMovingRef.current && myPlayer.isGrounded) {
+          const isChesterLocked = myPlayer.characterId === 'chester' && (chesterAttack1FreezeRef.current || chesterAttack1DashRef.current || chesterAttack2ActiveRef.current || chesterAttack3ActiveRef.current);
+
+          if (isKaelen && mouseButtons[0] && abilityCooldownsRef.current[1] === 0 && !myPlayer.isGrabbingLedge && !kaelenMovingRef.current && myPlayer.isGrounded && !isChesterLocked) {
               socket.emit('useAbility', { ability: 1 });
               abilityCooldownsRef.current[1] = ab1CD;
-          } else if (!isKaelen && mouseButtons[0] && abilityCooldownsRef.current[1] === 0 && !myPlayer.isGrabbingLedge) {
+          } else if (!isKaelen && mouseButtons[0] && abilityCooldownsRef.current[1] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
               socket.emit('useAbility', { ability: 1 });
               abilityCooldownsRef.current[1] = ab1CD;
               hitCooldownsRef.current = {};
-          } else if (mouseButtons[1] && abilityCooldownsRef.current[2] === 0 && !myPlayer.isGrabbingLedge) {
+          } else if (mouseButtons[1] && abilityCooldownsRef.current[2] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
               socket.emit('useAbility', { ability: 2 });
               abilityCooldownsRef.current[2] = ab2CD;
               hitCooldownsRef.current = {};
-          } else if (mouseButtons[2] && abilityCooldownsRef.current[3] === 0 && !myPlayer.isGrabbingLedge) {
+          } else if (mouseButtons[2] && abilityCooldownsRef.current[3] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
               socket.emit('useAbility', { ability: 3 });
               abilityCooldownsRef.current[3] = ab3CD;
               hitCooldownsRef.current = {};
@@ -2009,8 +2072,8 @@ export default function GameCanvas() {
             ctx.restore();
         }
 
-        // ── Pinedo/Mirage/Coco/Orbo/Zobo/Phantasma: hidden from canvas — rendered as DOM overlay beneath ──────
-        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo' || player.characterId === 'phantasma') {
+        // ── Pinedo/Mirage/Coco/Orbo/Zobo/Phantasma/Chester: hidden from canvas — rendered as DOM overlay beneath ──────
+        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo' || player.characterId === 'phantasma' || player.characterId === 'chester') {
             hideStandardBody = true;
         }
 
@@ -2486,6 +2549,8 @@ export default function GameCanvas() {
                       <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : char.id === 'phantasma' ? (
                       <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
+                    ) : char.id === 'chester' ? (
+                      <img src="/Chester/ChesterIcon.png" alt="Chester" className="w-16 h-16 object-contain mb-4" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-16 h-16 rounded-lg mb-4 rotate-12" style={{ backgroundColor: char.color }}></div>
                     )}
@@ -2888,6 +2953,43 @@ export default function GameCanvas() {
                   />
                 );
               })}
+              {/* Chester DOM sprite overlay */}
+              {playersList.filter(p => p.characterId === 'chester').map(p => {
+                const state = p.chesterState || 'idle';
+                const src =
+                  state === 'walk'    ? '/Chester/ChesterWalk.gif' :
+                  state === 'attack1' ? '/Chester/ChesterAttack1.gif' :
+                  state === 'attack2' ? '/Chester/ChesterAttack2.gif' :
+                  state === 'attack3' ? '/Chester/ChesterAttack3.gif' :
+                                        '/Chester/Chester.gif';
+
+                const drawH = 62;
+                const drawW = drawH;
+                const bottom = p.y + p.height + 4;
+                const top = bottom - drawH;
+                const playerCenterX = p.x + p.width / 2;
+                const left = playerCenterX - drawW / 2;
+
+                return (
+                  <img
+                    key={p.id + '-chester-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width: drawW,
+                      height: drawH,
+                      imageRendering: 'pixelated',
+                      // Sprites face RIGHT by default — flip for left-facing
+                      transform: p.facing === 'left' ? 'scaleX(-1)' : 'none',
+                      transformOrigin: 'center center',
+                      filter: p.isInvincible ? 'drop-shadow(0 0 8px #facc15)' : 'none'
+                    }}
+                  />
+                );
+              })}
               {/* OldTV objects left behind by Phantasma */}
               {playersList.filter(p => p.phantasmaOldTvs).flatMap(p =>
                 Object.values(p.phantasmaOldTvs || {}).map((tv: any) => {
@@ -2958,6 +3060,8 @@ export default function GameCanvas() {
                       <img src="/Orbo/OrboIdle.png" alt="Orbo" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : p.characterId === 'phantasma' ? (
                       <img src="/Phantasma/PhantasmaIcon.png" alt="Phantasma" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
+                    ) : p.characterId === 'chester' ? (
+                      <img src="/Chester/ChesterIcon.png" alt="Chester" className="w-10 h-10 object-contain" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-9 h-9 rounded-lg" style={{ backgroundColor: p.color }}></div>
                     )}

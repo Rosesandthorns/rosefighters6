@@ -448,7 +448,7 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
   checkWinConditions(targetLobby);
 }
 
-function applyDamage(target: Player, damage: number, attackerId?: string, isExplosion = false) {
+function applyDamage(target: Player, damage: number, attackerId?: string, isExplosion = false, isProjectile = false) {
     if (target.isInvincible) return;
 
     // Mimic Counter
@@ -476,7 +476,30 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
         return;
     }
 
-    // Deflect Counter
+    // Chester Deflect — absorb ranged (0 dmg), reflect melee 100% back
+    if (target.characterId === 'chester' && target.chesterDeflectActive && !isExplosion && attackerId) {
+        const targetLobby = getLobbyByPlayerId(target.id);
+        if (targetLobby) io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'deflectSuccess' });
+        if (isProjectile) {
+            // Ranged: absorb completely — no damage taken, no reflect
+            return;
+        } else {
+            // Melee: reflect 100% damage back to attacker
+            const attacker = players[attackerId];
+            if (attacker && !attacker.isInvincible) {
+                attacker.health -= damage;
+                if (targetLobby) io.to(targetLobby.id).emit('playerEffect', { id: attacker.id, effect: 'hit' });
+                if (attacker.health <= 0) {
+                    handlePlayerDeath(attacker, target.id, 'deflect');
+                } else if (targetLobby) {
+                    io.to(targetLobby.id).emit('playerHealthChanged', { id: attacker.id, health: attacker.health });
+                }
+            }
+            return;
+        }
+    }
+
+    // Standard Deflect Counter (Orbo etc.)
     if (target.deflectTimer && target.deflectTimer > Date.now() && attackerId && !isExplosion) {
         const attacker = players[attackerId];
         if (attacker) {
@@ -496,8 +519,9 @@ function applyDamage(target: Player, damage: number, attackerId?: string, isExpl
         return;
     }
 
-    if (target.characterId === 'chester' && target.healTimer && target.healTimer > Date.now()) {
-        target.healTimer = 0;
+    // Chester attack3 heal interrupt — mark interrupted so heal won't fire
+    if (target.characterId === 'chester' && target.chesterAttack3Active) {
+        target.chesterHealInterrupted = true;
         const targetLobby = getLobbyByPlayerId(target.id);
         if (targetLobby) io.to(targetLobby.id).emit('playerEffect', { id: target.id, effect: 'healCancel' });
     }
@@ -848,15 +872,8 @@ setInterval(() => {
                 io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'ricaChargeRun' });
             }
 
-            // Chester Heal
-            if (player.healTimer && now < player.healTimer) {
-                if (now - (player.healLastHit || 0) > 5000) {
-                    player.health = Math.min(player.maxHealth, player.health + 20);
-                    player.healTimer = 0;
-                    io.to(lobbyId).emit('playerHealthChanged', { id: player.id, health: player.health });
-                    io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterHealed' });
-                }
-            }
+
+
         }
 
         // Process Walls
@@ -1015,7 +1032,7 @@ setInterval(() => {
                         const dist = Math.hypot(proj.x - (proj.startX || 0), proj.y - (proj.startY || 0));
                         actualDamage = Math.min(40, Math.max(10, 10 + (dist / 800) * 30));
                     }
-                    applyDamage(player, actualDamage, proj.ownerId);
+                    applyDamage(player, actualDamage, proj.ownerId, false, true);
                     if (player.health < beforeHp) {
                         if (player.characterId !== 'wax') io.to(player.id).emit('applyKnockback', { vx: proj.vx > 0 ? 10 : -10, vy: -5, stunFrames: 10 });
                         // Zobo attack 1 (spider) grants 0.5s of I-frames (invincibility) to target
@@ -1966,20 +1983,73 @@ io.on('connection', (socket) => {
               }
           }
       } else if (player.characterId === 'chester') {
+          // Block new abilities if attack2 or attack3 is already active
+          const chesterLocked = player.chesterAttack2Active || player.chesterAttack3Active;
           if (data.ability === 1) {
-              player.isInvincible = true;
-              io.emit('playerEffect', { id: player.id, effect: 'toothDash' });
-              // I-frames will be removed by client timing or by server timing. Let's let client send movement, but we can clear invincibility.
+              if (chesterLocked) return;
+              // Attack 1: emit state, freeze 120ms, then dash forward for ~480ms
+              player.chesterState = 'attack1';
+              io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack1' });
+              // Freeze movement for 120ms on client via chesterAttack1Freeze flag
+              io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack1Start' });
+              // After 120ms: send dash signal (client handles velocity)
               setTimeout(() => {
-                  if (players[player.id]) players[player.id].isInvincible = false;
-              }, 500);
+                  if (players[player.id]) {
+                      io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack1Dash' });
+                  }
+              }, 120);
+              // End of animation ~600ms: clear state
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      players[player.id].chesterState = 'idle';
+                      io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
+                  }
+              }, 600);
           } else if (data.ability === 2) {
-              player.mimicTimer = Date.now() + 5000;
-              io.emit('playerEffect', { id: player.id, effect: 'mimicStart' });
+              if (chesterLocked) return;
+              // Attack 2: deflect from start; freeze 280ms; then free movement; blocks other attacks; animation ~800ms
+              player.chesterAttack2Active = true;
+              player.chesterDeflectActive = true;
+              player.chesterState = 'attack2';
+              io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack2' });
+              // 280ms freeze — signal client to unlock movement after
+              io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack2Start' });
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack2MoveUnlock' });
+                  }
+              }, 280);
+              // End animation ~800ms: clear deflect and state
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      players[player.id].chesterAttack2Active = false;
+                      players[player.id].chesterDeflectActive = false;
+                      players[player.id].chesterState = 'idle';
+                      io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
+                  }
+              }, 800);
           } else if (data.ability === 3) {
-              player.healTimer = Date.now() + 5000;
-              player.healLastHit = Date.now();
-              io.emit('playerEffect', { id: player.id, effect: 'healStart' });
+              if (chesterLocked) return;
+              // Attack 3: lock movement + other attacks; heal 30hp if animation goes uninterrupted
+              player.chesterAttack3Active = true;
+              player.chesterState = 'attack3';
+              player.chesterHealInterrupted = false;
+              io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'attack3' });
+              io.to(player.id).emit('playerEffect', { id: player.id, effect: 'chesterAttack3Start' });
+              // Duration ~1200ms (enough for animation)
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      players[player.id].chesterAttack3Active = false;
+                      players[player.id].chesterState = 'idle';
+                      io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterState', state: 'idle' });
+                      // Heal 30hp if not interrupted by damage
+                      if (!players[player.id].chesterHealInterrupted) {
+                          players[player.id].health = Math.min(players[player.id].maxHealth, players[player.id].health + 30);
+                          io.to(lobbyId).emit('playerHealthChanged', { id: player.id, health: players[player.id].health });
+                          io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'chesterHealed' });
+                      }
+                  }
+              }, 1200);
           }
       } else if (player.characterId === 'coco') {
           if (data.ability === 1) {
