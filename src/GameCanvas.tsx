@@ -33,7 +33,6 @@ interface Player {
   pinedoState?: 'idle' | 'run' | 'attack1' | 'attack2' | 'waiting' | 'attack3start' | 'attack3main';
   pinedoAttack3Center?: { x: number; y: number };
   mirageState?: 'idle' | 'movestart' | 'midflight' | 'movestop' | 'attack1' | 'attack2' | 'attack3' | 'attack3reverse';
-  ricaState?: 'idle' | 'walk' | 'chargeAttackStart' | 'chargeAttackMid' | 'grabStart' | 'grabMid' | 'droneAttack';
   mirageMoving?: boolean;
   phantasmaForm?: 'tv' | 'ghost';
   phantasmaState?: 'idle' | 'attack1' | 'attack2' | 'attack3' | 'movestart' | 'movemid' | 'dash';
@@ -734,6 +733,17 @@ export default function GameCanvas() {
         if (data.effect === 'coleRoll') {
             p.activeEffects['coleRoll'] = Date.now() + 1000;
         }
+        if (data.effect === 'ricaChargeAttack') {
+            p.activeEffects['ricaChargeAttack'] = Date.now() + 1500;
+            p.ricaState = 'chargeAttackMid';
+        }
+        if (data.effect === 'ricaGrab') {
+            p.activeEffects['ricaGrab'] = Date.now() + 2000;
+            p.ricaState = 'grabMid';
+        }
+        if (data.effect === 'ricaDrone') {
+            p.activeEffects['ricaDrone'] = Date.now() + 500;
+        }
         if (data.effect === 'brambleImmune') {
             p.activeEffects['brambleImmune'] = Date.now() + 3000;
         }
@@ -775,25 +785,6 @@ export default function GameCanvas() {
         }
         if (data.effect === 'pinedoAttack3Main') {
             p.pinedoState = 'attack3main';
-        }
-        // Rica state & timing sync
-        if (data.effect === 'ricaStateChange' && (data as any).state) {
-            p.ricaState = (data as any).state;
-        }
-        if (data.effect === 'ricaChargeAttackStart') {
-            p.ricaState = 'chargeAttackStart';
-        }
-        if (data.effect === 'ricaChargeAttackMid') {
-            p.ricaState = 'chargeAttackMid';
-        }
-        if (data.effect === 'ricaGrabStart') {
-            p.ricaState = 'grabStart';
-        }
-        if (data.effect === 'ricaGrabMid') {
-            p.ricaState = 'grabMid';
-        }
-        if (data.effect === 'ricaDroneAttack') {
-            p.ricaState = 'droneAttack';
         }
         // Chester state & timing sync
         if (data.effect === 'chesterState' && (data as any).state) {
@@ -1227,18 +1218,21 @@ export default function GameCanvas() {
               
               const isColeRollActive = myPlayer.activeEffects?.['coleRoll'] && myPlayer.activeEffects['coleRoll'] > Date.now();
               const isPhantomDashActive = myPlayer.activeEffects?.['phantomDash'] && myPlayer.activeEffects['phantomDash'] > Date.now();
-              const isRicaRunActive = myPlayer.activeEffects?.['ricaRun'] && myPlayer.activeEffects['ricaRun'] > Date.now();
+              const isRicaChargeAttack = myPlayer.activeEffects?.['ricaChargeAttack'] && myPlayer.activeEffects['ricaChargeAttack'] > Date.now();
+              const isRicaGrab = myPlayer.activeEffects?.['ricaGrab'] && myPlayer.activeEffects['ricaGrab'] > Date.now();
+              const isRicaDrone = myPlayer.activeEffects?.['ricaDrone'] && myPlayer.activeEffects['ricaDrone'] > Date.now();
               const isChesterFreeze1 = myPlayer.activeEffects?.['chesterAtk1Freeze'] && myPlayer.activeEffects['chesterAtk1Freeze'] > Date.now();
               const isChesterDashActive = !isChesterFreeze1 && myPlayer.activeEffects?.['chesterAtk1Dash'] && myPlayer.activeEffects['chesterAtk1Dash'] > Date.now();
               const isChesterFreeze2 = myPlayer.activeEffects?.['chesterAtk2Freeze'] && myPlayer.activeEffects['chesterAtk2Freeze'] > Date.now();
               const isChesterFreeze3 = myPlayer.activeEffects?.['chesterAtk3Active'] && myPlayer.activeEffects['chesterAtk3Active'] > Date.now();
 
-              if (isColeRollActive || isRicaRunActive || isPhantomDashActive || isChesterDashActive) {
+              // Rica charge attack works like Cole's roll - dash mobility
+              if (isColeRollActive || isRicaChargeAttack || isPhantomDashActive || isChesterDashActive) {
                   if (!myPlayer.isGrounded && !isPhantomDashActive && !isChesterDashActive) {
                       if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
-                      if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
+                      if (isRicaChargeAttack) myPlayer.activeEffects['ricaChargeAttack'] = 0;
                   } else {
-                      const dashSpeed = isPhantomDashActive ? currentSpeed * 3.0 : (isColeRollActive ? MOVE_SPEED * 2 : (isChesterDashActive ? MOVE_SPEED * 1.2 : currentSpeed * 2.5));
+                      const dashSpeed = isPhantomDashActive ? currentSpeed * 3.0 : (isColeRollActive ? MOVE_SPEED * 2 : (isRicaChargeAttack ? MOVE_SPEED * 2.5 : (isChesterDashActive ? MOVE_SPEED * 1.2 : currentSpeed * 2.5)));
                       moveTarget = myPlayer.facing === 'right' ? dashSpeed : -dashSpeed;
                       
                       if (!isPhantomDashActive) {
@@ -1258,7 +1252,7 @@ export default function GameCanvas() {
                           
                           if (!hasGround) {
                               if (isColeRollActive) myPlayer.activeEffects['coleRoll'] = 0;
-                              if (isRicaRunActive) myPlayer.activeEffects['ricaRun'] = 0;
+                              if (isRicaChargeAttack) myPlayer.activeEffects['ricaChargeAttack'] = 0;
                               if (isChesterDashActive) myPlayer.activeEffects['chesterAtk1Dash'] = 0;
                               myPlayer.activeEffects['edgeBrake'] = Date.now() + 150;
                               moveTarget = 0;
@@ -1266,7 +1260,7 @@ export default function GameCanvas() {
                           }
                       }
                   }
-              } else if (isChesterFreeze1 || isChesterFreeze2 || isChesterFreeze3) {
+              } else if (isChesterFreeze1 || isChesterFreeze2 || isChesterFreeze3 || isRicaGrab || isRicaDrone) {
                   moveTarget = 0; // frozen during attack startups or heal
               } else if (myPlayer.activeEffects?.['ricaCharge'] && myPlayer.activeEffects['ricaCharge'] > Date.now()) {
                   moveTarget = 0; // frozen while charging
@@ -1290,13 +1284,6 @@ export default function GameCanvas() {
                 const attackStates = ['attack1','attack2','waiting','attack3start','attack3main'];
                 if (!attackStates.includes(myPlayer.pinedoState || '')) {
                   myPlayer.pinedoState = moveTarget !== 0 ? 'run' : 'idle';
-                }
-              }
-              // Update Rica walk/idle state from movement (only when not in an attack)
-              if (myPlayer.characterId === 'rica') {
-                const attackStates = ['chargeAttackStart','chargeAttackMid','grabStart','grabMid','droneAttack'];
-                if (!attackStates.includes(myPlayer.ricaState || '')) {
-                  myPlayer.ricaState = moveTarget !== 0 ? 'walk' : 'idle';
                 }
               }
               // Update Chester walk/idle/attack state
@@ -2937,15 +2924,14 @@ export default function GameCanvas() {
                 );
               })}
               {playersList.filter(p => p.characterId === 'rica').map(p => {
-                const state = p.ricaState || 'idle';
-                const src =
-                  state === 'walk'              ? '/Rica/RicaWalk.gif'              :
-                  state === 'chargeAttackStart' ? '/Rica/RicaChargeAttackStart.gif' :
-                  state === 'chargeAttackMid'   ? '/Rica/RicaChargeAttackMid.png'   :
-                  state === 'grabStart'         ? '/Rica/RicaChargeGrabStart.gif'   :
-                  state === 'grabMid'           ? '/Rica/RicaGrabAttackMid.png'     :
-                  state === 'droneAttack'       ? '/Rica/RicaDroneAttack.gif'       :
-                                                   '/Rica/RicaIdle.gif';
+                const isChargeAttack = p.activeEffects?.['ricaChargeAttack'] && p.activeEffects['ricaChargeAttack'] > Date.now();
+                const isGrab = p.activeEffects?.['ricaGrab'] && p.activeEffects['ricaGrab'] > Date.now();
+                const isDrone = p.activeEffects?.['ricaDrone'] && p.activeEffects['ricaDrone'] > Date.now();
+                
+                const src = isChargeAttack ? '/Rica/RicaChargeAttackMid.png' :
+                           isGrab ? '/Rica/RicaGrabAttackMid.png' :
+                           isDrone ? '/Rica/RicaDroneAttack.gif' :
+                           '/Rica/RicaIdle.gif';
 
                 // Render height: 70 pixels tall as specified
                 const drawH = 70;
