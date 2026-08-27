@@ -805,9 +805,8 @@ setInterval(() => {
             // Rica charge attack damage window
             if (player.characterId === 'rica' && player.activeEffects?.['ricaChargeAttack'] && 
                 player.activeEffects['ricaChargeAttack'] > now) {
-                // Hitbox - larger area in front of Rica for dash attack
-                const hbOffsetX = player.facing === 'right' ? 20 : -40;
-                const hbX = player.x + hbOffsetX;
+                // Hitbox - simple front-facing hitbox
+                const hbX = player.facing === 'right' ? player.x + player.width : player.x - 60;
                 const hbY = player.y;
                 const hbW = 60;
                 const hbH = player.height;
@@ -1828,6 +1827,10 @@ io.on('connection', (socket) => {
         handlePlayerDeath(players[socket.id], undefined, 'void');
       } else if (lobby) {
         socket.to(lobby.id).emit('playerMoved', players[socket.id]);
+        // Also send activeEffects for Rica abilities
+        if (players[socket.id].characterId === 'rica' && players[socket.id].activeEffects) {
+            socket.to(lobby.id).emit('playerEffect', { id: socket.id, effect: 'activeEffectsSync', activeEffects: players[socket.id].activeEffects });
+        }
       }
     }
   });
@@ -2376,11 +2379,29 @@ io.on('connection', (socket) => {
               player.activeEffects = player.activeEffects || {};
               player.activeEffects['ricaChargeAttack'] = Date.now() + 1500;
               io.emit('playerEffect', { id: player.id, effect: 'ricaChargeAttack' });
+              
+              // Clear effect after duration
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      players[player.id].activeEffects = players[player.id].activeEffects || {};
+                      players[player.id].activeEffects['ricaChargeAttack'] = 0;
+                      io.emit('playerEffect', { id: player.id, effect: 'ricaChargeAttackEnd' });
+                  }
+              }, 1500);
           } else if (data.ability === 2) {
               // Grab Attack - set server-side activeEffects
               player.activeEffects = player.activeEffects || {};
               player.activeEffects['ricaGrab'] = Date.now() + 2000;
               io.emit('playerEffect', { id: player.id, effect: 'ricaGrab' });
+              
+              // Clear effect after duration
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      players[player.id].activeEffects = players[player.id].activeEffects || {};
+                      players[player.id].activeEffects['ricaGrab'] = 0;
+                      io.emit('playerEffect', { id: player.id, effect: 'ricaGrabEnd' });
+                  }
+              }, 2000);
           } else if (data.ability === 3) {
               // Drone Attack - spawn drones like Neddy
               for (let i = 0; i < 3; i++) {
@@ -2401,6 +2422,15 @@ io.on('connection', (socket) => {
               player.activeEffects = player.activeEffects || {};
               player.activeEffects['ricaDrone'] = Date.now() + 1000;
               io.emit('playerEffect', { id: player.id, effect: 'ricaDrone' });
+              
+              // Clear effect after duration
+              setTimeout(() => {
+                  if (players[player.id]) {
+                      players[player.id].activeEffects = players[player.id].activeEffects || {};
+                      players[player.id].activeEffects['ricaDrone'] = 0;
+                      io.emit('playerEffect', { id: player.id, effect: 'ricaDroneEnd' });
+                  }
+              }, 1000);
           }
       } else if (player.characterId === 'zobo') {
           if (data.ability === 1) {

@@ -409,7 +409,7 @@ export default function GameCanvas() {
     // Connect to same host, forcing websocket transport to avoid load balancing / polling issues
     // In production, will connect to the deployed server URL
     const serverUrl = (import.meta as any).env?.PROD ? window.location.origin : 'http://localhost:3000';
-    const newSocket = io(serverUrl, { transports: ['websocket', 'polling'] });
+    const newSocket = io(serverUrl, { transports: ['websocket'] });
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
@@ -722,11 +722,26 @@ export default function GameCanvas() {
         if (data.effect === 'ricaChargeAttack') {
             p.activeEffects['ricaChargeAttack'] = Date.now() + 1500;
         }
+        if (data.effect === 'ricaChargeRun') {
+            // Server emits this when the charge-up completes and Rica starts dashing
+            p.activeEffects['ricaChargeAttack'] = Date.now() + 1500;
+            p.activeEffects['ricaRun'] = Date.now() + 1500;
+        }
+        if (data.effect === 'ricaChargeAttackEnd') {
+            p.activeEffects['ricaChargeAttack'] = 0;
+            p.activeEffects['ricaRun'] = 0;
+        }
         if (data.effect === 'ricaGrab') {
             p.activeEffects['ricaGrab'] = Date.now() + 2000;
         }
+        if (data.effect === 'ricaGrabEnd') {
+            p.activeEffects['ricaGrab'] = 0;
+        }
         if (data.effect === 'ricaDrone') {
-            p.activeEffects['ricaDrone'] = Date.now() + 500;
+            p.activeEffects['ricaDrone'] = Date.now() + 1000;
+        }
+        if (data.effect === 'ricaDroneEnd') {
+            p.activeEffects['ricaDrone'] = 0;
         }
         if (data.effect === 'brambleImmune') {
             p.activeEffects['brambleImmune'] = Date.now() + 3000;
@@ -972,17 +987,20 @@ export default function GameCanvas() {
     const handleKeyUp = (e: KeyboardEvent) => { keysRef.current[e.code] = false; };
     const handleMouseDown = (e: MouseEvent) => { mouseRef.current[e.button] = true; };
     const handleMouseUp = (e: MouseEvent) => { mouseRef.current[e.button] = false; };
+    const handleContextMenu = (e: MouseEvent) => { e.preventDefault(); };
     
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('contextmenu', handleContextMenu);
     };
   }, []);
 
@@ -2900,7 +2918,7 @@ export default function GameCanvas() {
                 const isDrone = p.activeEffects?.['ricaDrone'] && p.activeEffects['ricaDrone'] > Date.now();
                 
                 const src = isChargeAttack ? '/Rica/RicaChargeAttackMid.png' :
-                           isGrab ? '/Rica/RicaChargeGrabStart.gif' :
+                           isGrab ? '/Rica/RicaGrabAttackMid.png' :
                            isDrone ? '/Rica/RicaDroneAttack.gif' :
                            '/Rica/RicaIdle.gif';
 
