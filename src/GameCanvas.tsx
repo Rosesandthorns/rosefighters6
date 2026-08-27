@@ -33,6 +33,7 @@ interface Player {
   pinedoState?: 'idle' | 'run' | 'attack1' | 'attack2' | 'waiting' | 'attack3start' | 'attack3main';
   pinedoAttack3Center?: { x: number; y: number };
   mirageState?: 'idle' | 'movestart' | 'midflight' | 'movestop' | 'attack1' | 'attack2' | 'attack3' | 'attack3reverse';
+  ricaState?: 'idle' | 'walk' | 'chargeAttackStart' | 'chargeAttackMid' | 'grabStart' | 'grabMid' | 'droneAttack';
   mirageMoving?: boolean;
   phantasmaForm?: 'tv' | 'ghost';
   phantasmaState?: 'idle' | 'attack1' | 'attack2' | 'attack3' | 'movestart' | 'movemid' | 'dash';
@@ -221,6 +222,7 @@ export default function GameCanvas() {
     if (char.id === 'phantasma') return <img src="/Phantasma/PhantasmaIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
     if (char.id === 'chester') return <img src="/Chester/ChesterIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
     if (char.id === 'wisp') return <img src="/Wisp/WispMPIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
+    if (char.id === 'rica') return <img src="/Rica/RicaIcon.png" alt={char.name} className={combinedClass} style={{ imageRendering: 'pixelated' }} />;
     return <div className={`w-16 h-16 rounded-lg rotate-12 ${marginClass}`} style={{ backgroundColor: char.color }}></div>;
   };
   
@@ -258,6 +260,7 @@ export default function GameCanvas() {
   const zoboImgs = useRef<Record<string, HTMLImageElement>>({});
   const chesterImgs = useRef<Record<string, HTMLImageElement>>({});
   const wispImgs = useRef<Record<string, HTMLImageElement>>({});
+  const ricaImgs = useRef<Record<string, HTMLImageElement>>({});
   // Zobo arm tether state: server emits per-frame position
   const zoboArmRef = useRef<Record<string, { x1: number; y1: number; x2: number; y2: number; active: boolean }>>({});
 
@@ -349,6 +352,20 @@ export default function GameCanvas() {
     Object.entries(wispAssets).forEach(([key, src]) => {
       const img = new Image(); img.src = src;
       wispImgs.current[key] = img;
+    });
+    const ricaAssets: Record<string, string> = {
+      idle:              '/Rica/RicaIdle.gif',
+      walk:              '/Rica/RicaWalk.gif',
+      chargeAttackStart: '/Rica/RicaChargeAttackStart.gif',
+      chargeAttackMid:   '/Rica/RicaChargeAttackMid.png',
+      grabStart:         '/Rica/RicaChargeGrabStart.gif',
+      grabMid:           '/Rica/RicaGrabAttackMid.png',
+      droneAttack:       '/Rica/RicaDroneAttack.gif',
+      icon:              '/Rica/RicaIcon.png',
+    };
+    Object.entries(ricaAssets).forEach(([key, src]) => {
+      const img = new Image(); img.src = src;
+      ricaImgs.current[key] = img;
     });
   }, []);
 
@@ -758,6 +775,25 @@ export default function GameCanvas() {
         }
         if (data.effect === 'pinedoAttack3Main') {
             p.pinedoState = 'attack3main';
+        }
+        // Rica state & timing sync
+        if (data.effect === 'ricaStateChange' && (data as any).state) {
+            p.ricaState = (data as any).state;
+        }
+        if (data.effect === 'ricaChargeAttackStart') {
+            p.ricaState = 'chargeAttackStart';
+        }
+        if (data.effect === 'ricaChargeAttackMid') {
+            p.ricaState = 'chargeAttackMid';
+        }
+        if (data.effect === 'ricaGrabStart') {
+            p.ricaState = 'grabStart';
+        }
+        if (data.effect === 'ricaGrabMid') {
+            p.ricaState = 'grabMid';
+        }
+        if (data.effect === 'ricaDroneAttack') {
+            p.ricaState = 'droneAttack';
         }
         // Chester state & timing sync
         if (data.effect === 'chesterState' && (data as any).state) {
@@ -1254,6 +1290,13 @@ export default function GameCanvas() {
                 const attackStates = ['attack1','attack2','waiting','attack3start','attack3main'];
                 if (!attackStates.includes(myPlayer.pinedoState || '')) {
                   myPlayer.pinedoState = moveTarget !== 0 ? 'run' : 'idle';
+                }
+              }
+              // Update Rica walk/idle state from movement (only when not in an attack)
+              if (myPlayer.characterId === 'rica') {
+                const attackStates = ['chargeAttackStart','chargeAttackMid','grabStart','grabMid','droneAttack'];
+                if (!attackStates.includes(myPlayer.ricaState || '')) {
+                  myPlayer.ricaState = moveTarget !== 0 ? 'walk' : 'idle';
                 }
               }
               // Update Chester walk/idle/attack state
@@ -2872,6 +2915,46 @@ export default function GameCanvas() {
                 // CSS scaleX(-1) mirrors around the element's own center, so the
                 // 32px attack extension naturally flips to the correct (forward) side.
                 // No manual offset needed for either facing direction.
+                const left = playerCenterX - drawW / 2;
+
+                return (
+                  <img
+                    key={p.id + '-sprite'}
+                    src={src}
+                    alt=""
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width: drawW,
+                      height: drawH,
+                      imageRendering: 'pixelated',
+                      // Sprites face LEFT by default — flip for right-facing
+                      transform: p.facing === 'right' ? 'scaleX(-1)' : 'none',
+                      transformOrigin: 'center center',
+                    }}
+                  />
+                );
+              })}
+              {playersList.filter(p => p.characterId === 'rica').map(p => {
+                const state = p.ricaState || 'idle';
+                const src =
+                  state === 'walk'              ? '/Rica/RicaWalk.gif'              :
+                  state === 'chargeAttackStart' ? '/Rica/RicaChargeAttackStart.gif' :
+                  state === 'chargeAttackMid'   ? '/Rica/RicaChargeAttackMid.png'   :
+                  state === 'grabStart'         ? '/Rica/RicaChargeGrabStart.gif'   :
+                  state === 'grabMid'           ? '/Rica/RicaGrabAttackMid.png'     :
+                  state === 'droneAttack'       ? '/Rica/RicaDroneAttack.gif'       :
+                                                   '/Rica/RicaIdle.gif';
+
+                // Render height: 70 pixels tall as specified
+                const drawH = 70;
+                const drawW = drawH; // Assume square aspect ratio for simplicity
+                const bottom = p.y + p.height + 4;
+                const top = bottom - drawH;
+
+                // Horizontal: center sprite on player center
+                const playerCenterX = p.x + p.width / 2;
                 const left = playerCenterX - drawW / 2;
 
                 return (

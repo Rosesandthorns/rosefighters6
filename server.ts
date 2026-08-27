@@ -76,6 +76,12 @@ interface Player {
   pinedoAttack1Hit?: boolean;
   pinedoAttack3Center?: { x: number; y: number };
   pinedoAttack3End?: number;
+  // Rica sprite state
+  ricaState?: 'idle' | 'walk' | 'chargeAttackStart' | 'chargeAttackMid' | 'grabStart' | 'grabMid' | 'droneAttack';
+  ricaChargeAttackEnd?: number;
+  ricaGrabTargetId?: string | null;
+  ricaGrabEnd?: number;
+  ricaDroneSpawnTime?: number;
   mirageState?: 'idle' | 'movestart' | 'midflight' | 'movestop' | 'attack1' | 'attack2' | 'attack3' | 'attack3reverse';
   mirageMoving?: boolean;
   mirageAttack3TeleportX?: number;
@@ -382,6 +388,7 @@ function handlePlayerDeath(target: Player, killerId?: string, cause?: string) {
     target.orboState = 'idle'; target.pinedoState = 'idle'; target.mirageState = 'idle';
     target.cocoState = 'idle'; target.boomerangActive = false;
     target.phantasmaForm = 'tv'; target.phantasmaState = 'idle'; target.phantasmaOldTv = undefined;
+    target.ricaState = 'idle'; target.ricaGrabTargetId = null; target.ricaChargeAttackEnd = 0;
     // If Phantasma just died — destroy their abandoned OldTV
     if (target.characterId === 'phantasma' && target.phantasmaOldTv) {
         io.to(targetLobby.id).emit('destroyOldTv', { id: target.phantasmaOldTv.id, ownerId: target.id });
@@ -607,6 +614,7 @@ function charWidth(id: string | null | undefined, form?: string): number {
   if (id === 'phantasma') return form === 'ghost' ? 16 : 45; // Ghost: 93 - 77 = 16, TV: 86 - 41 = 45
   if (id === 'chester') return 56; // 76 - 20 = 56
   if (id === 'wisp') return 14;   // 71 - 57 = 14
+  if (id === 'rica') return 14;   // 69 - 55 = 14
   return 50;
 }
 
@@ -618,6 +626,8 @@ function charHeight(id: string | null | undefined, form?: string): number {
   if (id === 'zobo') return 70;
   if (id === 'phantasma') return form === 'ghost' ? 109 : 89; // Ghost: 124 - 15 = 109, TV: 109 - 20 = 89
   if (id === 'chester') return 34; // 123 - 89 = 34
+  if (id === 'rica') return 70;    // 70 pixels tall as specified
+  if (id === 'wisp') return 57;    // 71 - 14 = 57
   if (id === 'wisp') return 81;   // 120 - 39 = 81
   return 50;
 }
@@ -796,6 +806,46 @@ setInterval(() => {
                 player.pinedoAttack3End && now >= player.pinedoAttack3End) {
                 player.pinedoState = 'idle';
                 io.to(lobbyId).emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
+            }
+
+            // Rica charge attack damage window
+            if (player.characterId === 'rica' && player.ricaState === 'chargeAttackMid' &&
+                player.ricaChargeAttackEnd && now < player.ricaChargeAttackEnd) {
+                // Hitbox at 55 33 to 69 120 as specified
+                const hbX = player.x + 55;
+                const hbY = player.y + 33;
+                const hbW = 69 - 55; // 14
+                const hbH = 120 - 33; // 87
+                
+                // Check for hits every 100ms
+                if (now % 100 < 20) {
+                    for (const targetId of lobbyPlayerIds) {
+                        if (targetId === player.id) continue;
+                        const target = players[targetId];
+                        if (!target) continue;
+                        if (target.x < hbX + hbW && target.x + target.width > hbX &&
+                            target.y < hbY + hbH && target.y + target.height > hbY) {
+                            const dmg = Math.min(25, target.maxHealth * 0.12);
+                            applyDamage(target, dmg, player.id);
+                            if (target.characterId !== 'wax') {
+                                io.to(target.id).emit('applyKnockback', { vx: player.facing === 'left' ? -15 : 15, vy: -8, stunFrames: 20 });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Rica grab damage window
+            if (player.characterId === 'rica' && player.ricaState === 'grabMid' &&
+                player.ricaGrabTargetId && player.ricaGrabEnd && now < player.ricaGrabEnd) {
+                const target = players[player.ricaGrabTargetId];
+                if (target) {
+                    // Apply damage over time while grabbing
+                    if (now % 200 < 20) {
+                        const dmg = Math.min(10, target.maxHealth * 0.05);
+                        applyDamage(target, dmg, player.id);
+                    }
+                }
             }
 
             // Fire wall damage
@@ -1720,6 +1770,10 @@ io.on('connection', (socket) => {
   socket.on('playerMovement', (movementData) => {
     if (players[socket.id]) {
       if (players[socket.id].grabbedByPlayerId) return;
+      
+      // Also prevent movement if grabbed by Rica's new grab system
+      const grabber = Object.values(players).find(p => p.ricaGrabTargetId === socket.id);
+      if (grabber) return;
 
       players[socket.id].x = movementData.x;
       players[socket.id].y = movementData.y;
@@ -1753,6 +1807,18 @@ io.on('connection', (socket) => {
           if (grabbedId && players[grabbedId]) {
               players[grabbedId].x = players[socket.id].x + (players[socket.id].facing === 'right' ? players[socket.id].width : -players[grabbedId].width);
               players[grabbedId].y = players[socket.id].y;
+              io.to(lobby.id).emit('forcePosition', { id: grabbedId, x: players[grabbedId].x, y: players[grabbedId].y });
+          }
+      }
+
+      // Rica grab positioning - position grabbed player 1 layer in front at 30 67
+      if (players[socket.id].characterId === 'rica' && players[socket.id].ricaGrabTargetId && lobby) {
+          const grabbedId = players[socket.id].ricaGrabTargetId;
+          if (grabbedId && players[grabbedId]) {
+              // Position grabbed player at Rica's 30 67 position, 1 layer in front
+              const offset = players[socket.id].facing === 'right' ? 15 : -15;
+              players[grabbedId].x = players[socket.id].x + 30 + offset - players[grabbedId].width / 2;
+              players[grabbedId].y = players[socket.id].y + 67 - players[grabbedId].height / 2;
               io.to(lobby.id).emit('forcePosition', { id: grabbedId, x: players[grabbedId].x, y: players[grabbedId].y });
           }
       }
@@ -1940,64 +2006,6 @@ io.on('connection', (socket) => {
               player.safetyWarpState = 'charging';
               player.safetyWarpTimer = Date.now() + 1000;
               io.emit('playerEffect', { id: player.id, effect: 'warpChargeStart' });
-          }
-      } else if (player.characterId === 'rica') {
-          if (data.ability === 1) {
-              if (player.throwCooldown && player.throwCooldown > Date.now()) return;
-              if (player.grabbedPlayerId) {
-                  const target = players[player.grabbedPlayerId];
-                  if (target) {
-                      const dmg = target.maxHealth * 0.25;
-                      const beforeHp = target.health;
-                      applyDamage(target, dmg, player.id);
-                      player.grabbedPlayerId = null;
-                      target.grabbedByPlayerId = null;
-                      player.grabTimer = 0;
-                      player.throwCooldown = Date.now() + 5000;
-                      io.emit('playerEffect', { id: player.id, effect: 'ricaSlam' });
-                      if (target.health < beforeHp) {
-                          io.to(target.id).emit('applyKnockback', { vx: 0, vy: 20, stunFrames: 30 });
-                      }
-                  }
-                  return;
-              }
-
-              let target = null;
-              let minDist = 60;
-              for (const other of Object.values(players)) {
-                  if (other.id === player.id) continue;
-                  const distX = other.x - player.x;
-                  const distY = other.y - player.y;
-                  const dist = Math.hypot(distX, distY);
-                  const isFacingRight = player.facing === 'right' && distX > 0 && distX < 60;
-                  const isFacingLeft = player.facing === 'left' && distX < 0 && distX > -60;
-                  if (Math.abs(distY) < 50 && (isFacingRight || isFacingLeft)) {
-                      target = other;
-                      break;
-                  }
-              }
-              if (target) {
-                  player.grabbedPlayerId = target.id;
-                  target.grabbedByPlayerId = player.id;
-                  player.grabTimer = Date.now() + 5000;
-                  io.emit('playerEffect', { id: player.id, effect: 'ricaGrab' });
-              }
-          } else if (data.ability === 2) {
-              if (player.isGrounded) {
-                  player.chargeState = 'charging';
-                  player.chargeTimer = Date.now() + 1000;
-                  io.emit('playerEffect', { id: player.id, effect: 'ricaChargeStart' });
-              }
-          } else if (data.ability === 3) {
-              for(let i = 0; i < 2; i++) {
-                  const id = 'drone_' + entityIdCounter++;
-                  drones[id] = {
-                      id, x: player.x, y: player.y - 40 - (i * 30),
-                      vx: 0, vy: 0,
-                      ownerId: player.id,
-                      hp: 1
-                  };
-              }
           }
       } else if (player.characterId === 'chester') {
           // Block new abilities if attack2 or attack3 is already active
@@ -2362,6 +2370,139 @@ io.on('connection', (socket) => {
                   players[player.id].pinedoAttack3End = 0;
                   io.emit('playerEffect', { id: player.id, effect: 'pinedoStateChange', state: 'idle' });
               }, 1400);
+          }
+      } else if (player.characterId === 'rica') {
+          if (data.ability === 1) {
+              // Charge Attack - can't use while already in another attack
+              if (player.ricaState === 'chargeAttackStart' || player.ricaState === 'chargeAttackMid' || 
+                  player.ricaState === 'grabStart' || player.ricaState === 'grabMid' || player.ricaState === 'droneAttack') return;
+              
+              const now2 = Date.now();
+              player.ricaState = 'chargeAttackStart';
+              player.ricaChargeAttackEnd = now2 + 1500; // Total duration
+              
+              // Freeze player during charge attack (can't control movement)
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: Math.ceil(1500 / 33) });
+              io.emit('playerEffect', { id: player.id, effect: 'ricaChargeAttackStart' });
+              
+              // After windup ( RicaChargeAttackStart ), switch to mid animation
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].ricaState = 'chargeAttackMid';
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaChargeAttackMid' });
+              }, 500); // 500ms windup
+              
+              // Clear freeze and return to idle after total duration
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].ricaState = 'idle';
+                  players[player.id].ricaChargeAttackEnd = 0;
+                  io.to(player.id).emit('clearStun');
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaStateChange', state: 'idle' });
+              }, 1500);
+          } else if (data.ability === 2) {
+              // Grab Attack - can't use while already in another attack
+              if (player.ricaState === 'chargeAttackStart' || player.ricaState === 'chargeAttackMid' || 
+                  player.ricaState === 'grabStart' || player.ricaState === 'grabMid' || player.ricaState === 'droneAttack') return;
+              
+              player.ricaState = 'grabStart';
+              player.ricaGrabTargetId = null;
+              player.ricaGrabEnd = Date.now() + 2000; // 2 second grab duration
+              
+              io.emit('playerEffect', { id: player.id, effect: 'ricaGrabStart' });
+              
+              // Check for grab target after short windup
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  
+                  // Calculate grab hitbox at position 30 67 on Rica's sprite
+                  const grabX = player.x + 30;
+                  const grabY = player.y + 67;
+                  
+                  // Look for grab target
+                  for (const targetId of lobbyPlayerIds) {
+                      if (targetId === player.id) continue;
+                      const target = players[targetId];
+                      if (!target) continue;
+                      
+                      const targetCenterX = target.x + target.width / 2;
+                      const targetCenterY = target.y + target.height / 2;
+                      
+                      // Check if target center is near grab position (within 30 pixels)
+                      const dist = Math.hypot(targetCenterX - grabX, targetCenterY - grabY);
+                      if (dist < 30) {
+                          // Grab successful
+                          players[player.id].ricaGrabTargetId = targetId;
+                          players[player.id].ricaState = 'grabMid';
+                          target.grabbedByPlayerId = player.id;
+                          io.emit('playerEffect', { id: player.id, effect: 'ricaGrabMid' });
+                          return;
+                      }
+                  }
+                  
+                  // No target grabbed, return to idle
+                  players[player.id].ricaState = 'idle';
+                  players[player.id].ricaGrabEnd = 0;
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaStateChange', state: 'idle' });
+              }, 300); // 300ms windup
+              
+              // Auto-release grab after duration
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  if (players[player.id].ricaGrabTargetId) {
+                      const targetId = players[player.id].ricaGrabTargetId;
+                      const target = players[targetId];
+                      if (target) target.grabbedByPlayerId = null;
+                  }
+                  players[player.id].ricaState = 'idle';
+                  players[player.id].ricaGrabTargetId = null;
+                  players[player.id].ricaGrabEnd = 0;
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaStateChange', state: 'idle' });
+              }, 2000);
+          } else if (data.ability === 3) {
+              // Drone Attack - can't use while already in another attack
+              if (player.ricaState === 'chargeAttackStart' || player.ricaState === 'chargeAttackMid' || 
+                  player.ricaState === 'grabStart' || player.ricaState === 'grabMid' || player.ricaState === 'droneAttack') return;
+              
+              player.ricaState = 'droneAttack';
+              player.ricaDroneSpawnTime = Date.now() + 500; // Spawn drones after 500ms
+              
+              // Freeze player during drone attack (can't control movement)
+              io.to(player.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: Math.ceil(1000 / 33) });
+              io.emit('playerEffect', { id: player.id, effect: 'ricaDroneAttack' });
+              
+              // Spawn drones after 500ms at position 30 67 on Rica's sprite
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  const droneX = players[player.id].x + 30;
+                  const droneY = players[player.id].y + 67;
+                  
+                  // Spawn 3 drones in a spread pattern
+                  for (let i = 0; i < 3; i++) {
+                      const pid = 'drone_' + entityIdCounter++;
+                      const angle = (i - 1) * 0.5; // Spread angles
+                      drones[pid] = {
+                          id: pid,
+                          x: droneX,
+                          y: droneY,
+                          vx: Math.cos(angle) * 8,
+                          vy: Math.sin(angle) * 8 - 5,
+                          ownerId: player.id,
+                          hp: 30,
+                          type: 'A',
+                          lobbyId: lobbyId
+                      };
+                  }
+              }, 500);
+              
+              // Clear freeze and return to idle after 1 second
+              setTimeout(() => {
+                  if (!players[player.id]) return;
+                  players[player.id].ricaState = 'idle';
+                  players[player.id].ricaDroneSpawnTime = 0;
+                  io.to(player.id).emit('clearStun');
+                  io.emit('playerEffect', { id: player.id, effect: 'ricaStateChange', state: 'idle' });
+              }, 1000);
           }
       } else if (player.characterId === 'zobo') {
           if (data.ability === 1) {
