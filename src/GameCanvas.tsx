@@ -2193,8 +2193,8 @@ export default function GameCanvas() {
             ctx.restore();
         }
 
-        // ── Pinedo/Mirage/Coco/Orbo/Zobo/Phantasma/Chester/Wisp: hidden from canvas — rendered as DOM overlay beneath ──────
-        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo' || player.characterId === 'phantasma' || player.characterId === 'chester' || player.characterId === 'wisp') {
+        // ── Pinedo/Mirage/Coco/Orbo/Zobo/Phantasma/Chester/Wisp/Rica: hidden from canvas — rendered as DOM overlay beneath ──────
+        if (player.characterId === 'pinedo' || player.characterId === 'mirage' || player.characterId === 'coco' || player.characterId === 'orbo' || player.characterId === 'zobo' || player.characterId === 'phantasma' || player.characterId === 'chester' || player.characterId === 'wisp' || player.characterId === 'rica') {
             hideStandardBody = true;
         }
 
