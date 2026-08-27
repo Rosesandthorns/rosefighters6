@@ -703,20 +703,6 @@ export default function GameCanvas() {
         if (data.effect === 'deflectSuccess') {
             spawnSlamParticles(p.x + p.width/2, p.y + p.height/2, '#06b6d4');
         }
-        if (data.effect === 'ricaChargeStart') {
-            p.activeEffects['ricaCharge'] = Date.now() + 1000;
-        }
-        if (data.effect === 'ricaChargeRun') {
-            p.activeEffects['ricaRun'] = Date.now() + 1000;
-            p.activeEffects['ricaCharge'] = 0;
-        }
-        if (data.effect === 'ricaGrab') {
-            p.activeEffects['ricaGrabbed'] = Date.now() + 5000;
-        }
-        if (data.effect === 'ricaSlam') {
-            p.activeEffects['ricaGrabbed'] = 0;
-            spawnSlamParticles(p.x + p.width/2, p.y + p.height/2, p.color);
-        }
         if (data.effect === 'toothDash') {
             p.activeEffects['toothDash'] = Date.now() + 500;
         }
@@ -735,11 +721,9 @@ export default function GameCanvas() {
         }
         if (data.effect === 'ricaChargeAttack') {
             p.activeEffects['ricaChargeAttack'] = Date.now() + 1500;
-            p.ricaState = 'chargeAttackMid';
         }
         if (data.effect === 'ricaGrab') {
             p.activeEffects['ricaGrab'] = Date.now() + 2000;
-            p.ricaState = 'grabMid';
         }
         if (data.effect === 'ricaDrone') {
             p.activeEffects['ricaDrone'] = Date.now() + 500;
@@ -1262,8 +1246,6 @@ export default function GameCanvas() {
                   }
               } else if (isChesterFreeze1 || isChesterFreeze2 || isChesterFreeze3 || isRicaGrab || isRicaDrone) {
                   moveTarget = 0; // frozen during attack startups or heal
-              } else if (myPlayer.activeEffects?.['ricaCharge'] && myPlayer.activeEffects['ricaCharge'] > Date.now()) {
-                  moveTarget = 0; // frozen while charging
               } else if (myPlayer.activeEffects?.['edgeBrake'] && myPlayer.activeEffects['edgeBrake'] > Date.now()) {
                   moveTarget = 0; // frozen to prevent accidentally walking off edge
               } else {
@@ -1455,7 +1437,7 @@ export default function GameCanvas() {
               socket.emit('useAbility', { ability: 2 });
               abilityCooldownsRef.current[2] = ab2CD;
               hitCooldownsRef.current = {};
-          } else if (mouseButtons[2] && abilityCooldownsRef.current[3] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
+          } else if (mouseButtons[2] && abilityCooldownsRef.current[3] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked && myPlayer.characterId !== 'rica') {
               if (myPlayer.characterId === 'chester') {
                   myPlayer.activeEffects = myPlayer.activeEffects || {};
                   myPlayer.activeEffects['chesterAtk3Active'] = Date.now() + 1200;
@@ -2283,23 +2265,12 @@ export default function GameCanvas() {
             ctx.fillRect(player.x, player.y, player.width, player.height);
         }
 
-        if (player.activeEffects?.['ricaCharge'] && player.activeEffects['ricaCharge'] > Date.now()) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-            ctx.fillRect(player.x - 5, player.y - 5, player.width + 10, player.height + 10);
-        }
-
         if (player.activeEffects?.['wombo'] && player.activeEffects['wombo'] > Date.now()) {
             ctx.strokeStyle = '#fff';
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(player.x + player.width/2, player.y + player.height/2, 80, 0, Math.PI * 2);
             ctx.stroke();
-        }
-        if (player.activeEffects?.['ricaGrabbed'] && player.activeEffects['ricaGrabbed'] > Date.now()) {
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 4;
-            ctx.strokeRect(player.x - 2, player.y - 2, player.width + 4, player.height + 4);
-            ctx.lineWidth = 1;
         }
 
         if (player.activeEffects?.['mimic'] && player.activeEffects['mimic'] > Date.now()) {
@@ -2929,7 +2900,7 @@ export default function GameCanvas() {
                 const isDrone = p.activeEffects?.['ricaDrone'] && p.activeEffects['ricaDrone'] > Date.now();
                 
                 const src = isChargeAttack ? '/Rica/RicaChargeAttackMid.png' :
-                           isGrab ? '/Rica/RicaGrabAttackMid.png' :
+                           isGrab ? '/Rica/RicaChargeGrabStart.gif' :
                            isDrone ? '/Rica/RicaDroneAttack.gif' :
                            '/Rica/RicaIdle.gif';
 

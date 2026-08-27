@@ -805,11 +805,12 @@ setInterval(() => {
             // Rica charge attack damage window
             if (player.characterId === 'rica' && player.activeEffects?.['ricaChargeAttack'] && 
                 player.activeEffects['ricaChargeAttack'] > now) {
-                // Hitbox at 55 33 to 69 120 as specified
-                const hbX = player.x + 55;
-                const hbY = player.y + 33;
-                const hbW = 69 - 55; // 14
-                const hbH = 120 - 33; // 87
+                // Hitbox - larger area in front of Rica for dash attack
+                const hbOffsetX = player.facing === 'right' ? 20 : -40;
+                const hbX = player.x + hbOffsetX;
+                const hbY = player.y;
+                const hbW = 60;
+                const hbH = player.height;
                 
                 // Check for hits every 100ms
                 if (now % 100 < 20) {
