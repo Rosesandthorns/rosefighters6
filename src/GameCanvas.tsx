@@ -1437,7 +1437,7 @@ export default function GameCanvas() {
               socket.emit('useAbility', { ability: 2 });
               abilityCooldownsRef.current[2] = ab2CD;
               hitCooldownsRef.current = {};
-          } else if (mouseButtons[2] && abilityCooldownsRef.current[3] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked && myPlayer.characterId !== 'rica') {
+          } else if (mouseButtons[2] && abilityCooldownsRef.current[3] === 0 && !myPlayer.isGrabbingLedge && !isChesterLocked) {
               if (myPlayer.characterId === 'chester') {
                   myPlayer.activeEffects = myPlayer.activeEffects || {};
                   myPlayer.activeEffects['chesterAtk3Active'] = Date.now() + 1200;

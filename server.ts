@@ -847,14 +847,14 @@ setInterval(() => {
                         const targetCenterX = target.x + target.width / 2;
                         const targetCenterY = target.y + target.height / 2;
                         
-                        // Check if target center is near grab position (within 30 pixels)
+                        // Check if target center is near grab position (within 50 pixels)
                         const dist = Math.hypot(targetCenterX - grabX, targetCenterY - grabY);
-                        if (dist < 30) {
-                            // Apply grab damage
+                        if (dist < 50) {
+                            // Apply grab damage and stun
                             const dmg = Math.min(10, target.maxHealth * 0.05);
                             applyDamage(target, dmg, player.id);
                             if (target.characterId !== 'wax') {
-                                io.to(target.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 10 });
+                                io.to(target.id).emit('applyKnockback', { vx: 0, vy: 0, stunFrames: 15 });
                             }
                         }
                     }
@@ -2372,10 +2372,14 @@ io.on('connection', (socket) => {
           }
       } else if (player.characterId === 'rica') {
           if (data.ability === 1) {
-              // Charge Attack - simple like Cole's roll
+              // Charge Attack - set server-side activeEffects
+              player.activeEffects = player.activeEffects || {};
+              player.activeEffects['ricaChargeAttack'] = Date.now() + 1500;
               io.emit('playerEffect', { id: player.id, effect: 'ricaChargeAttack' });
           } else if (data.ability === 2) {
-              // Grab Attack - simple like Cole's abilities
+              // Grab Attack - set server-side activeEffects
+              player.activeEffects = player.activeEffects || {};
+              player.activeEffects['ricaGrab'] = Date.now() + 2000;
               io.emit('playerEffect', { id: player.id, effect: 'ricaGrab' });
           } else if (data.ability === 3) {
               // Drone Attack - spawn drones like Neddy
@@ -2394,6 +2398,8 @@ io.on('connection', (socket) => {
                       lobbyId: lobbyId
                   };
               }
+              player.activeEffects = player.activeEffects || {};
+              player.activeEffects['ricaDrone'] = Date.now() + 1000;
               io.emit('playerEffect', { id: player.id, effect: 'ricaDrone' });
           }
       } else if (player.characterId === 'zobo') {
